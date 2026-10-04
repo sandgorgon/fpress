@@ -817,3 +817,50 @@ Conclusions:
 - A tile map with 1% noise gets no recipes at all (64,398 B, all anchors): exact matching cannot
   cope with scattered noise. That is the "approximate matching" item, a bigger prize than repair.
 Next candidates: larger root blocks, approximate matching (now with a concrete failing case).
+
+## Measurement: is approximate matching worth building? (no)
+Question: scattered noise (1% of cells changed) stopped the fractal stage finding recipes. Would
+matching "nearly the same" blocks and patching the differences pay? Measured on 512x512 inputs
+(temporary tests, removed), three ways.
+
+1. **Do near-copies exist?** For every aligned 8x8 block, the fewest differing cells against any
+   earlier block (same-scale) or any 2x-decimated block, on a stride-4 grid, identity isometry:
+
+| input | exact | 1-2 cells off | 3-4 | 5-16 | none within 16 |
+|---|---|---|---|---|---|
+| Sierpinski + 0.1% noise | 94.7% | 5.3% | 0 | 0 | 0 |
+| Sierpinski + 1% noise | 60.7% | 38.1% | 1.2% | 0 | 0 |
+| tile map + 0.1% / 1% noise | 94% / 53% | 6% / 44% | 0 / 2.7% | 0 | 0.1% |
+| plasma terrain | 0 | 0 | 0.1% | 15.7% | 84.4% |
+
+   On noisy exact-structure data nearly every block has a near-copy (the rest are already exact
+   copies). On terrain, which is only statistically self-similar, almost none do within 16 cells.
+   So approximate matching helps noisy exact data and does not help terrain.
+
+2. **But exact matches were already there and unused.** Half the blocks of the 1%-noise tile map
+   have an exact copy, yet the fractal stage found none at the 16x16 root level (a 16x16 block
+   is clean only 8% of the time) and kept anchors. This is not a matching problem; it is that
+   root blocks are large (the "larger root blocks" item is the other direction: here smaller
+   parts of a root should be allowed to copy while the rest stays raw).
+
+3. **Does it beat what we already ship?** The shipped result is the cm coder, not fractal mode.
+   Whole-pipeline sizes (`fpress bench`, bytes), and a best-case estimate for approximate
+   matching = the exact version's fractal size + the entropy of the noise itself (free positions):
+
+| 512x512 input | cm (shipped) | fractal now | exact version, fractal | noise floor | ideal approximate |
+|---|---|---|---|---|---|
+| tile map, no noise | 2,291 | 3,540 | 3,540 | 0 | - |
+| tile map + 0.1% | 3,053 | 6,775 | 3,540 | 636 | ~4,180 (worse than cm) |
+| tile map + 1% | 9,222 | 17,305 | 3,540 | 5,270 | ~8,810 (5% better) |
+| Sierpinski, no noise | 76 | 231 | 231 | 0 | - |
+| Sierpinski + 0.1% | 881 | 1,289 | 231 | 636 | ~870 (tie) |
+| Sierpinski + 1% | 6,617 | 7,157 | 231 | 5,270 | ~5,500 (17% better) |
+
+   Even assuming a perfect patch coder, approximate matching ties or loses to cm at 0.1% noise
+   and gains 5-17% at 1%, on files far smaller than where fractal mode wins at all (exact
+   Sierpinski: cm beats fractal at 512x512; fractal only wins at hundreds of MiB). Real patches
+   go through flate/cm, not at the noise entropy, so the true gain is smaller.
+
+Decision: **do not build approximate matching.** Terrain-like data has no near-copies, and noisy
+exact data is already handled about as well by cm. Remaining candidate: larger/flexible root
+blocks (point 2), to be measured next.
