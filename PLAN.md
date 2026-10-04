@@ -899,3 +899,17 @@ splitting a root into 4x4 pieces destroys that context. This is the "cost-model 
 Decision: larger root blocks dropped. `CopyMinSize=8` is a safe small improvement to fractal mode
 (never larger in these measurements) but changes no shipped result, so it is not applied yet;
 it needs a check on records / mixed files before it becomes a default.
+
+### Check: `CopyMinSize=8` on real-shaped files (not applied)
+Compressed 17 files from the earlier benchmark set (records, mixed, gradient, text, executables,
+audio-like, terrain, Sierpinski, tile maps, a 2 MB collection) through the whole codec with the
+gate forced off, `Fractal.CopyMinSize` 0 vs 8; every output round-trips.
+- Fractal-mode size: identical on 15 of 17 files. Worse on two: smooth ramp +0.9% (1,792 -> 1,808 B),
+  an executable +0.6% (454,200 -> 456,729 B). Better on none of them.
+- Shipped size: identical on all 17 (cm or segmented wins on all but four, and those four did not move:
+  audio-like, Sierpinski 512, two tile maps).
+- So the only measured gains are the noisy tile maps (-15% to -28% in fractal mode, which cm beats
+  anyway) and the only measured costs are two small regressions. No shipped result changes.
+Decision: leave the default at 0. If fractal mode on noisy tile-like data ever matters, the better
+fix is to calibrate the planner's anchor cost (anchors of repetitive content cost far less than
+1 byte/cell), not a size cut-off.
