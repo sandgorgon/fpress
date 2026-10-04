@@ -773,7 +773,7 @@ whole-input pass was writing when the two ran side by side. Harmless in practice
 always false there) but a race; the segmented pass no longer reads shared state.
 
 ### Still open from the assessment
-Dependency-aware planning and adaptive round count; larger root blocks; references across
+Larger root blocks (dependency-aware planning was measured and dropped, see the end); references across
 super-segments; denser domain grids for unaligned copies; approximate matching; cost-model
 calibration.
 
@@ -789,3 +789,31 @@ per-mode estimate (`decodeNeed`): stored/flate 2x the piece, prep 4x, segmented 
 (grids dominate), cm 2x plus its model (~40 bytes per table slot, growing with the piece: 18 MiB for
 a 64 KiB piece, ~90 MiB at most). Errors are reported as memory problems, never as corruption (an
 earlier version wrapped them as "corrupt container"; caught by a test). No limit given = no check.
+
+## Measurement: how much does the repair loop cost? (nothing built)
+Question: before building dependency-aware planning, how much output is lost to the encoder's
+repair loop (recipes that fail when really decoded are demoted to raw anchors)? Measured with
+temporary counters in `demote` (removed again), default options, `EncodeTiled`, serialized size.
+
+| input (1024x1024 unless noted) | size | demoted recipes | cells turned into anchors |
+|---|---|---|---|
+| Sierpinski (also 2048) | 349 B (619 B) | 1 | 256 (the seed block, needed anyway) |
+| tile map 8x8 / 16x16 tiles | 9,006 / 2,494 B | 0 | 0 |
+| repeated rows, smooth field | 1,150 / 1,779 B | 0 | 0 |
+| tile map, 64 palette, 0.1% noise | 36,568 B | 0 | 0 |
+| Sierpinski + 0.1% noise | 4,510 B | 1 | 512 |
+| Sierpinski + 1% noise | 31,362 B | 2,081 | 65,712 |
+| plasma (diamond-square terrain) | 12,367 B | 576 (hit the 32-round cap) | 4,736 |
+
+Conclusions:
+- On exactly self-similar data (the case the fractal stage is for) the repair loop is essentially
+  idle: 0-1 demotions, nothing to gain. **Dependency-aware planning is not worth building for it.**
+- The repair loop is worth keeping: switching it off (`MaxRefine=0`) makes noisy Sierpinski 3-14%
+  larger (0.1%: 5,273 vs 4,510 B; 1%: 32,378 vs 31,362 B) and plasma 13% larger.
+- Only noisy/approximate data (1% noise, plasma) demotes much. There I cannot separate "loss" from
+  the noise's own cost (1% noise has ~19 KB of entropy by itself; output 31 KB), so an upper bound
+  is all this gives. Plasma uses all 32 rounds, so the round count (not planning) is the only
+  visible inefficiency, and plasma is not exact self-similarity. Not pursued.
+- A tile map with 1% noise gets no recipes at all (64,398 B, all anchors): exact matching cannot
+  cope with scattered noise. That is the "approximate matching" item, a bigger prize than repair.
+Next candidates: larger root blocks, approximate matching (now with a concrete failing case).
