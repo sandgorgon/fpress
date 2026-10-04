@@ -6,6 +6,7 @@ import (
 	"flag"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -320,5 +321,32 @@ func TestDecompressMemoryFlag(t *testing.T) {
 	}
 	if _, statErr := os.Stat(out); statErr == nil {
 		t.Error("an output file was left behind after the refusal")
+	}
+}
+
+// The tool is one self-contained binary: only the standard library and this
+// module's own packages, and no cgo (so no C library to link against).
+func TestBuildsWithStandardLibraryOnly(t *testing.T) {
+	goTool, err := exec.LookPath("go")
+	if err != nil {
+		t.Skip("go tool not available")
+	}
+	cmd := exec.Command(goTool, "list", "-deps", "-f", "{{.ImportPath}} {{.Standard}}", ".")
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Skipf("go list failed: %v", err)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		f := strings.Fields(line)
+		if len(f) != 2 {
+			continue
+		}
+		if f[1] != "true" && !strings.HasPrefix(f[0], "fpress") {
+			t.Errorf("dependency outside the standard library: %s", f[0])
+		}
+		if f[0] == "C" || f[0] == "runtime/cgo" {
+			t.Errorf("binary depends on cgo: %s", f[0])
+		}
 	}
 }
