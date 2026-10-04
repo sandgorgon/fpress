@@ -1,0 +1,10 @@
+# build products
+/fpress
+/fpress386
+*.test
+*.prof
+
+# compressed files and test scratch
+*.fpr
+*.out
+.fpress-*
