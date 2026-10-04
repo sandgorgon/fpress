@@ -34,6 +34,7 @@ Use `-` for standard input or output (`cat data | fpress compress - data.fpr`).
 | `-preset default\|fast\|fastest` | speed against size, see below |
 | `-memory 4G` | memory budget the compressor plans around (default 8G) |
 | `-workers N` | how many CPU cores to use (default: all) |
+| `-video 1280x720:rgb24` | the file is raw video; see "Raw video" below |
 | `decompress -memory 2G` | on decompress: stay within this budget, or refuse with a clear error |
 
 `fpress compress -h` lists the tuning flags for people who want to experiment.
@@ -121,6 +122,35 @@ The fractal stage works at any size. It reads the input in pieces, so memory sta
 (These two rows were measured earlier in the project, before some later speed-ups, and not re-run
 for this table.)
 
+### Raw video
+
+Raw video has no header, so fpress cannot tell where one frame ends. Tell it with `-video`, and it
+compares each frame with the one before, storing only what changed:
+
+```sh
+./fpress compress -video 1280x720:rgb24 clip.rgb clip.fpr
+```
+
+Formats: `gray8`, `gray16`, `rgb24`, `bgr24`, `rgba`, `bgra` and `yuv420` (planar). The default is `rgb24`.
+Tested on three generated clips (RGB, 320x180, 60 frames, 10.4 MB each; `bench/video.sh` reproduces them):
+
+| clip | no hint | `-video` | `-video` fast | xz -9e | zstd -19 |
+|---|---:|---:|---:|---:|---:|
+| screen recording (static desktop, moving cursor) | 163,925 | **6,330** | 28,544 | 6,936 | 8,072 |
+| flat-colour animation | 24,691 | **4,409** | 8,255 | 6,228 | 19,241 |
+| camera footage with sensor noise | 4,867,712 | 4,804,961 | 4,835,705 | 6,447,220 | 6,779,961 |
+
+Without the hint fpress was 4 to 20 times *worse* than `xz` on the two clean clips: the repeat sits a
+whole frame away (172,800 bytes), further than its coders look. The hint fixes that: on clean video it is 24 times
+smaller on the screen recording and now beats `xz`. On noisy camera footage nothing changes: differencing two noisy
+frames makes the noise worse, so the compressor keeps its ordinary result (still about 25% smaller than `xz`).
+
+Be realistic about this. There is no motion tracking, so a panning camera or a moving object gains nothing;
+real camera video is noisy, so expect the third row, not the first two. It takes about 20-30 s to
+compress 10 MB (decompress 7-12 s); `-preset fast` is 3 times quicker but needs a keyframe per segment, so it
+is larger on clean video. A dedicated lossless video codec (FFV1, for example) will usually do better on camera
+footage. The clips are synthetic; I have not tested real video.
+
 ### Speed and memory
 
 The default preset trades time for size. Times for the 1 MiB files above, compress / decompress:
@@ -146,10 +176,12 @@ Good fit:
 - data with repetition at a distance: tile maps, sprite sheets, game levels, CAD-like grids, scanned
   forms, repeating records, synthetic images;
 - text, source code and logs, where it beat `xz` by 13-25% in the tests above, in exchange for time;
-- a mix of data types in one file.
+- a mix of data types in one file;
+- screen recordings and animation stored as raw frames (use `-video`).
 
 Poor fit:
 - speed-critical paths (use `-preset fast` or `zstd`);
+- camera video (see "Raw video"): works, but it is a plain-pixel coder with no motion search;
 - photographs and natural images: nearby pixels are similar but not identical, and exact matching finds
   little (the other methods still apply, but I have not measured photographs);
 - noisy near-repeats: if every copy differs by a few corrupted bytes, the fractal stage finds
@@ -179,6 +211,7 @@ bench/run.sh              # builds, generates the corpus, runs default and fast,
 bench/run.sh -quick       # fast preset only (about 20 seconds)
 bench/run.sh my.dat ...   # also benchmarks your own files
 go run ./bench/corpus -out DIR   # just write the generated files
+bench/video.sh            # the raw-video table above (about 3 minutes)
 ```
 
 Every file is compressed, decompressed and compared byte for byte; the script exits with an error if

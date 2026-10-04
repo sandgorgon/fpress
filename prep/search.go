@@ -112,6 +112,20 @@ type SearchOptions struct {
 	Width int
 	// MaxSample bounds how much of the data the trials use (0 = 64 KiB).
 	MaxSample int
+	// FrameRows, when positive, says the data is raw video whose frames are
+	// FrameRows rows each at the trial width. Chains that difference against the
+	// previous frame are then tried too, and the sample is widened to hold a few
+	// frames (the 64 KiB default would not even reach the second one).
+	FrameRows int
+}
+
+// frameChains are the extra chains tried for video of k rows per frame.
+func frameChains(k int) []Chain {
+	return []Chain{
+		{{Kind: DeltaFrameSub, K: k}},
+		{{Kind: DeltaFrameXor, K: k}},
+		{{Kind: DeltaFrameSub, K: k}, {Kind: DeltaLeftSub}},
+	}
 }
 
 // Search ranks (width, chain) pairs by how well the prepared bytes deflate.
@@ -127,6 +141,11 @@ func Search(data []byte, opt SearchOptions) []Candidate {
 	maxSample := opt.MaxSample
 	if maxSample <= 0 {
 		maxSample = 64 << 10
+	}
+	frameBytes := 0
+	if opt.FrameRows > 0 && opt.Width > 0 {
+		frameBytes = opt.FrameRows * opt.Width
+		maxSample = max(maxSample, 3*frameBytes) // a few frames, so the delta is visible
 	}
 	sample := data[:min(len(data), maxSample)]
 
@@ -160,7 +179,11 @@ func Search(data []byte, opt SearchOptions) []Candidate {
 	var out []Candidate
 	for _, w := range widths {
 		folded := matrix.FromBytes(sample, w)
-		for _, chain := range Catalogue {
+		chains := Catalogue
+		if frameBytes > 0 {
+			chains = append(append([]Chain(nil), Catalogue...), frameChains(opt.FrameRows)...)
+		}
+		for _, chain := range chains {
 			prepared, err := chain.Forward(folded)
 			if err != nil {
 				continue // chain does not fit this width

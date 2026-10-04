@@ -154,19 +154,19 @@ func TestCMAttemptsLimit(t *testing.T) {
 		{Width: 64},
 		{Width: 128},
 	}
-	if got := cmAttempts(cands, 10000, 0); len(got) != 3 {
+	if got := cmAttempts(cands, 10000, 0, false); len(got) != 3 {
 		t.Errorf("automatic: %d attempts, want 3", len(got))
 	}
-	if got := cmAttempts(cands, 10000, 1); len(got) != 1 || got[0].Width != 100 {
+	if got := cmAttempts(cands, 10000, 1, false); len(got) != 1 || got[0].Width != 100 {
 		t.Errorf("limit 1: %+v, want only the best candidate", got)
 	}
-	if got := cmAttempts(cands, 10000, 2); len(got) != 2 {
+	if got := cmAttempts(cands, 10000, 2, false); len(got) != 2 {
 		t.Errorf("limit 2: %d attempts", len(got))
 	}
-	if got := cmAttempts(cands, 10000, 9); len(got) != 3 {
+	if got := cmAttempts(cands, 10000, 9, false); len(got) != 3 {
 		t.Errorf("limit above what exists: %d attempts, want 3", len(got))
 	}
-	if got := cmAttempts(nil, 10000, 0); len(got) != 1 {
+	if got := cmAttempts(nil, 10000, 0, false); len(got) != 1 {
 		t.Errorf("no candidates: %d attempts, want just the plain stream", len(got))
 	}
 }

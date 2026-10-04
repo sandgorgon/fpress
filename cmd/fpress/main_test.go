@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"flag"
 	"io"
+	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -347,6 +348,50 @@ func TestBuildsWithStandardLibraryOnly(t *testing.T) {
 		}
 		if f[0] == "C" || f[0] == "runtime/cgo" {
 			t.Errorf("binary depends on cgo: %s", f[0])
+		}
+	}
+}
+
+func TestVideoFlag(t *testing.T) {
+	dir := t.TempDir()
+	// 12 frames of 160x100 RGB: a random still with a small moving square.
+	const w, h, frames = 160, 100, 12
+	still := make([]byte, w*h*3)
+	rand.New(rand.NewSource(4)).Read(still)
+	var data []byte
+	for n := 0; n < frames; n++ {
+		f := append([]byte(nil), still...)
+		for y := 20; y < 26; y++ {
+			copy(f[(y*w+n*5)*3:], bytes.Repeat([]byte{255}, 18))
+		}
+		data = append(data, f...)
+	}
+	in := filepath.Join(dir, "clip.rgb")
+	if err := os.WriteFile(in, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	size := func(flags ...string) int64 {
+		packed, out := filepath.Join(dir, "v.fpr"), filepath.Join(dir, "v.out")
+		if err := runCompress(append(flags, in, packed)); err != nil {
+			t.Fatalf("%v: %v", flags, err)
+		}
+		if err := runDecompress([]string{packed, out}); err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := os.ReadFile(out); !bytes.Equal(got, data) {
+			t.Fatalf("%v: round trip mismatch", flags)
+		}
+		st, _ := os.Stat(packed)
+		return st.Size()
+	}
+	plain, video := size(), size("-video", "160x100")
+	t.Logf("%d bytes: %d without -video, %d with", len(data), plain, video)
+	if video*3 > plain {
+		t.Errorf("-video should make this clip at least 3x smaller: %d vs %d", video, plain)
+	}
+	for _, bad := range [][]string{{"-video", "nonsense"}, {"-video", "160x100:xyz"}, {"-video", "160x100", "-width", "7"}} {
+		if err := runCompress(append(bad, in, filepath.Join(dir, "b.fpr"))); err == nil {
+			t.Errorf("%v should be rejected", bad)
 		}
 	}
 }

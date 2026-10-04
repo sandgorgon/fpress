@@ -36,6 +36,18 @@ type segInfo struct {
 }
 
 func resolveSegmentSize(opt Options) int {
+	if opt.FrameRows > 0 && opt.Width > 0 && opt.SegmentSize >= 0 {
+		// Video: a segment must hold several frames or there is nothing to
+		// difference against (the first frame of a segment is stored whole).
+		// Up to 8 frames, fewer when frames are big enough that the context
+		// mixing coder (capped at MaxCMSize) would no longer fit a segment.
+		fb := opt.FrameRows * opt.Width
+		maxCM := opt.MaxCMSize
+		if maxCM == 0 {
+			maxCM = defaultMaxCM
+		}
+		return min(max(fb, fb*min(8, max(2, maxCM/fb))), maxSegment)
+	}
 	switch {
 	case opt.SegmentSize < 0:
 		return 0 // disabled

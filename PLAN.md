@@ -913,3 +913,54 @@ gate forced off, `Fractal.CopyMinSize` 0 vs 8; every output round-trips.
 Decision: leave the default at 0. If fractal mode on noisy tile-like data ever matters, the better
 fix is to calibrate the planner's anchor cost (anchors of repetitive content cost far less than
 1 byte/cell), not a size cut-off.
+
+## Raw video: measured, then a video mode built
+Question: how does fpress do on raw (uncompressed, headerless) video? Three synthetic clips,
+RGB24 320x180, 60 frames, 10,368,000 B each (`go run ./bench/corpus -video`, seeded): a screen
+recording (static desktop, moving cursor, ticking clock), flat-colour animation (moving sprites),
+and camera-like footage (panning textured scene + Gaussian sensor noise, sigma 2).
+
+**Before (no video hint), bytes:** screen 163,925, cartoon 24,691, camera 4,867,712.
+`xz -9e` gets 6,936 / 6,228 / 6,447,220. So on the two clean clips fpress was 20x and 4x WORSE
+than xz, and on the noisy one 25% better.
+
+Why: an exact repeat sits one whole frame (172,800 B) back, far beyond what the coder or DEFLATE
+sees, while xz's long-range matcher finds it. The fractal stage was not the answer either: it ran
+(no size cap) but its search grid is 8 apart for 16x16 blocks and 180 rows is not a multiple of 8.
+Denser grids fixed that (cartoon 19,040 -> 8,689 B with stride 1) at 2.5x the time. The quick
+reject also called the clips hopeless (random-looking within any window).
+
+**Cheap viability test first:** difference each frame against the previous one outside fpress,
+then compress with fpress: screen 153,419 -> 6,327 B, cartoon 12,013 -> 7,129 B, camera WORSE
+(4,804,961 -> 4,991,803: differencing two noisy frames doubles the noise). So it pays on clean
+video and must be a candidate the encoder can reject, not a fixed transform.
+
+**Built (`-video WxH[:format]`, `codec.Options.FrameRows`):**
+- `prep.DeltaFrameSub` / `DeltaFrameXor`: each row minus the row K rows above, K = rows per frame
+  (2 bytes in the stream; old streams unaffected, new streams need a new binary).
+- With a video hint the layout search also tries frame chains (and samples 3 frames, not 64 KiB);
+  the CM coder always gets the best frame layout as one of its attempts (DEFLATE's ranking of a
+  frame difference is a poor guide for the coder: cartoon stayed at 12,013 until this was added).
+- The quick reject also looks one frame back (`repeatsAt`), segments hold 2-8 whole frames,
+  the fractal stage is switched off (it only costs time here).
+- Formats: gray8, gray16, rgb24/bgr24, rgba/bgra, yuv420 planar. Frame size is given by the user
+  (raw video has no header).
+
+**After, bytes (default / fast preset):**
+
+| clip | no flag | `-video` default | `-video` fast | xz -9e | zstd -19 --long |
+|---|---:|---:|---:|---:|---:|
+| screen | 163,925 | **6,330** | 28,544 | 6,936 | 8,072 |
+| cartoon | 24,691 | **4,409** | 8,255 | 6,228 | 19,241 |
+| camera (noisy) | 4,867,712 | 4,804,961 | 4,835,705 | 6,447,220 | 6,779,961 |
+
+Time (default, 10.4 MB): compress 19-32 s, decompress 7-12 s; fast: compress 7-11 s, decompress 2-3 s.
+All round trip. The noisy clip is unchanged (frame difference loses there and is not chosen).
+`fast` is worse on clean video because its segments are independent: each segment's first frame is
+stored whole (here 8 keyframes in 60 frames).
+
+Limits, said plainly: no motion compensation, so a panning scene or a moving object that is not
+a pure shift gains nothing from frame differencing; real camera footage is noisy, so expect the
+camera row, not the screen row. Frames larger than ~16 MiB (4K RGB) cannot fit two frames in a
+context-mixing segment and fall back to the other modes. The files are synthetic; no real video
+has been tested.

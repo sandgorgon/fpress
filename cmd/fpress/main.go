@@ -55,7 +55,7 @@ func usage() {
   fpress decompress [-memory 2G] in out  restore a file
   fpress bench      [flags] file...   compare stored / flate / prep / fractal sizes
 
-compress and bench flags: -preset (default|fast|fastest) -memory -big-segment -width -block -iter -stride -max-fractal -tile -min-block -workers -segment -no-cm -max-cm -cm-attempts -no-reject -no-fractal -no-copy -no-gate -no-prep
+compress and bench flags: -preset (default|fast|fastest) -memory -big-segment -width -block -iter -stride -max-fractal -tile -min-block -workers -segment -no-cm -max-cm -cm-attempts -no-reject -no-fractal -no-copy -no-gate -no-prep -video WxH[:format]
 bench also takes -head N to use only the first N bytes of each file, and
 -ext to add columns for xz -9e, zstd -19 and bzip2 -9 when they are installed.
 `)
@@ -87,6 +87,7 @@ func codecFlags(fs *flag.FlagSet) func() (codec.Options, error) {
 	noRej := fs.Bool("no-reject", false, "disable the quick reject for incompressible data")
 	no := fs.Bool("no-fractal", false, "skip the fractal attempt")
 	noPrep := fs.Bool("no-prep", false, "skip the prep (width/delta/bit-plane) search")
+	video := fs.String("video", "", "input is raw video, headerless frames: WIDTHxHEIGHT[:FORMAT] ("+codec.VideoFormats+")")
 	return func() (codec.Options, error) {
 		p, err := codec.ParsePreset(*preset)
 		if err != nil {
@@ -117,6 +118,17 @@ func codecFlags(fs *flag.FlagSet) func() (codec.Options, error) {
 		set("no-copy", func() { o.Fractal.NoSameScale = *noCopy })
 		set("no-gate", func() { o.NoFractalGate = *noGate })
 		set("no-prep", func() { o.DisablePrep = *noPrep })
+		if given["video"] {
+			w, rows, err := codec.ParseVideo(*video)
+			if err != nil {
+				return o, fmt.Errorf("-video: %w", err)
+			}
+			if given["width"] && o.Width != w {
+				return o, errors.New("-video sets the width itself; do not combine it with -width")
+			}
+			o.Width, o.FrameRows = w, rows
+			o.DisableFractal = true // frame differencing does the job; the fractal search only costs time here
+		}
 		if given["memory"] {
 			n, err := parseSize(*memory)
 			if err != nil {

@@ -26,6 +26,26 @@ func (s Step) forward(src *matrix.Dense) *matrix.Dense {
 			}
 		}
 		return out
+	case DeltaFrameSub, DeltaFrameXor:
+		out := matrix.NewDense(w, h)
+		for y := 0; y < h; y++ {
+			in, o := src.Row(y), out.Row(y)
+			if y < s.K {
+				copy(o, in)
+				continue
+			}
+			prev := src.Row(y - s.K)
+			if s.Kind == DeltaFrameSub {
+				for x := range o {
+					o[x] = in[x] - prev[x]
+				}
+			} else {
+				for x := range o {
+					o[x] = in[x] ^ prev[x]
+				}
+			}
+		}
+		return out
 	case DeltaLeftSub, DeltaLeftXor:
 		out := matrix.NewDense(w, h)
 		for y := 0; y < h; y++ {
@@ -98,6 +118,26 @@ func (s Step) inverse(src *matrix.Dense, w, h int) *matrix.Dense {
 			} else {
 				for x := range o {
 					o[x] = d[x] ^ above[x]
+				}
+			}
+		}
+		return out
+	case DeltaFrameSub, DeltaFrameXor:
+		out := matrix.NewDense(w, h)
+		for y := 0; y < h; y++ {
+			d, o := src.Row(y), out.Row(y)
+			if y < s.K {
+				copy(o, d)
+				continue
+			}
+			prev := out.Row(y - s.K)
+			if s.Kind == DeltaFrameSub {
+				for x := range o {
+					o[x] = d[x] + prev[x]
+				}
+			} else {
+				for x := range o {
+					o[x] = d[x] ^ prev[x]
 				}
 			}
 		}

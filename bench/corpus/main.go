@@ -22,6 +22,7 @@ const side = 1024 // image-like files are side x side bytes (1 MiB)
 
 func main() {
 	out := flag.String("out", "corpus", "directory to write the files into")
+	video := flag.Bool("video", false, "write only the synthetic raw-video clips (RGB24, 320x180, 60 frames)")
 	flag.Parse()
 	if err := os.MkdirAll(*out, 0o755); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -42,6 +43,16 @@ func main() {
 		{"mixed.bin", mixed()},
 		{"random.bin", random(1 << 20)},
 		{"zeros.bin", make([]byte, 1<<20)},
+	}
+	if *video {
+		files = []struct {
+			name string
+			data []byte
+		}{
+			{"video-screen.rgb", screenVideo()},
+			{"video-cartoon.rgb", cartoonVideo()},
+			{"video-camera.rgb", cameraVideo()},
+		}
 	}
 	for _, f := range files {
 		p := filepath.Join(*out, f.name)

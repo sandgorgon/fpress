@@ -145,6 +145,13 @@ type Options struct {
 	// fractal stage sees the data folded at the default width with no chain.
 	DisablePrep bool
 
+	// FrameRows marks the input as raw video: frames of FrameRows rows each,
+	// laid end to end, with Width the bytes in one row (pixels per row times
+	// bytes per pixel). Layouts that store each row as its change from the same
+	// row one frame earlier are then tried, and segments are made several frames
+	// long so they can use them. 0 means ordinary data. It needs Width.
+	FrameRows int
+
 	// SegmentSize is the segment length for the segmented mode: 0 means the
 	// default (64 KiB), a negative value disables the mode. It only applies
 	// to inputs longer than one segment.
@@ -273,7 +280,7 @@ func compressPayload(data []byte, opt Options, rep *Report) (Mode, []byte, error
 		// stored is the fallback the segmented candidate has to beat.
 		mode, payload = ModeStored, data
 		info = blockInfo{stored: len(data), flate: -1, prepFlate: -1, fractal: -1, cm: -1}
-		info.rejected = !opt.NoQuickReject && hopeless(data)
+		info.rejected = !opt.NoQuickReject && hopelessFor(data, opt)
 	}
 	// runSegmented must not look at info: when it runs next to the whole-input
 	// pass, that pass is writing it. Every branch that reaches it has already
@@ -287,7 +294,7 @@ func compressPayload(data []byte, opt Options, rep *Report) (Mode, []byte, error
 		if !info.rejected {
 			runSegmented()
 		}
-	} else if segmenting && !opt.NoQuickReject && hopeless(data) {
+	} else if segmenting && !opt.NoQuickReject && hopelessFor(data, opt) {
 		// Random-looking input: the whole-input pass will reject it; do not
 		// start the segmented pass at all.
 		mode, payload, info, err = encodeBlock(data, opt)
@@ -337,7 +344,7 @@ func candidates(data []byte, opt Options) []prep.Candidate {
 		}
 		return []prep.Candidate{{Width: min(w, len(data))}}
 	}
-	return prep.Search(data, prep.SearchOptions{Width: opt.Width, MaxSample: opt.SearchSample})
+	return prep.Search(data, prep.SearchOptions{Width: opt.Width, MaxSample: opt.SearchSample, FrameRows: opt.FrameRows})
 }
 
 // fractalAttempts picks which candidates get the (expensive) fractal stage:

@@ -22,6 +22,12 @@ func allChains() []Chain {
 		{{Kind: Deinterleave, K: 16}},
 		{{Kind: Deinterleave, K: 3}, {Kind: DeltaLeftXor}, {Kind: DeltaUpXor}},
 		{{Kind: DeltaLeftSub}, {Kind: BitPlanes}, {Kind: DeltaUpSub}, {Kind: DeltaLeftXor}},
+		{{Kind: DeltaFrameSub, K: 1}},
+		{{Kind: DeltaFrameSub, K: 3}},
+		{{Kind: DeltaFrameXor, K: 4}},
+		{{Kind: DeltaFrameSub, K: 100}}, // taller than most test shapes: nothing to difference
+		{{Kind: DeltaFrameSub, K: 2}, {Kind: DeltaLeftSub}},
+		{{Kind: DeltaFrameXor, K: 65535}},
 	}
 	return append(append([]Chain(nil), Catalogue...), extra...)
 }
@@ -161,6 +167,9 @@ func TestParseChainRejectsGarbage(t *testing.T) {
 		"unknown kind": {1, 77},
 		"missing K":    {1, byte(Deinterleave)},
 		"bad K":        {1, byte(Deinterleave), 99},
+		"frame no K":   {1, byte(DeltaFrameSub)},
+		"frame half K": {1, byte(DeltaFrameXor), 5},
+		"frame K zero": {1, byte(DeltaFrameSub), 0, 0},
 	} {
 		if _, _, err := ParseChain(b); err == nil {
 			t.Errorf("%s: expected an error", name)
@@ -315,5 +324,53 @@ func TestSearchIsDeterministicAndNeverEmpty(t *testing.T) {
 	// A fixed width wider than the data still yields something usable.
 	if got := Search([]byte("short"), SearchOptions{Width: 100}); len(got) == 0 || got[0].Width > 5 {
 		t.Errorf("oversized width: %v", got)
+	}
+}
+
+func TestFrameDeltaMakesRepeatedFramesZero(t *testing.T) {
+	const w, rows, frames = 12, 5, 4
+	frame := randomMatrix(w, rows, 77).Pix()
+	var data []byte
+	for i := 0; i < frames; i++ {
+		data = append(data, frame...)
+	}
+	m := matrix.FromBytes(data, w)
+	for _, kind := range []Kind{DeltaFrameSub, DeltaFrameXor} {
+		pre, err := Chain{{Kind: kind, K: rows}}.Forward(m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(pre.Pix()[:w*rows], frame) {
+			t.Error("the first frame must be kept whole")
+		}
+		for i, b := range pre.Pix()[w*rows:] {
+			if b != 0 {
+				t.Fatalf("kind %d: byte %d of the later frames is %d, want 0", kind, i, b)
+			}
+		}
+	}
+}
+
+func TestSearchFindsFrameDeltaOnVideo(t *testing.T) {
+	const w, rows, frames = 60, 40, 6
+	rng := rand.New(rand.NewSource(5))
+	frame := make([]byte, w*rows)
+	rng.Read(frame)
+	var data []byte
+	for i := 0; i < frames; i++ {
+		f := append([]byte(nil), frame...)
+		f[i] ^= 0xFF // one pixel changes per frame
+		data = append(data, f...)
+	}
+	best := Search(data, SearchOptions{Width: w, FrameRows: rows})[0]
+	if len(best.Chain) == 0 || (best.Chain[0].Kind != DeltaFrameSub && best.Chain[0].Kind != DeltaFrameXor) || best.Chain[0].K != rows {
+		t.Errorf("expected a frame delta of %d rows to win, got %v", rows, best.Chain)
+	}
+	for _, c := range Search(data, SearchOptions{Width: w}) {
+		for _, s := range c.Chain {
+			if s.Kind == DeltaFrameSub || s.Kind == DeltaFrameXor {
+				t.Fatal("frame chains must only be tried when FrameRows is set")
+			}
+		}
 	}
 }

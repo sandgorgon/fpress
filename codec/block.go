@@ -43,7 +43,7 @@ func encodeBlock(data []byte, opt Options) (Mode, []byte, blockInfo, error) {
 		return bestMode, best, info, nil
 	}
 
-	if !opt.NoQuickReject && hopeless(data) {
+	if !opt.NoQuickReject && hopelessFor(data, opt) {
 		info.rejected = true
 		return bestMode, best, info, nil
 	}
@@ -106,7 +106,7 @@ func encodeBlock(data []byte, opt Options) (Mode, []byte, blockInfo, error) {
 		maxCM = defaultMaxCM
 	}
 	if !opt.DisableCM && len(data) <= maxCM {
-		cmAtt = cmAttempts(cands, len(data), opt.CMAttempts)
+		cmAtt = cmAttempts(cands, len(data), opt.CMAttempts, opt.FrameRows > 0)
 		cmRes = make([]result, len(cmAtt))
 		for i, c := range cmAtt {
 			tasks = append(tasks, func() { cmRes[i].payload, cmRes[i].err = cmPayload(data, c.Width, c.Chain) })
@@ -156,6 +156,41 @@ func encodeBlock(data []byte, opt Options) (Mode, []byte, blockInfo, error) {
 	return bestMode, best, info, nil
 }
 
+// hopelessFor is hopeless for the given options. Raw video can look random
+// within any window DEFLATE or the period detector sees, yet repeat exactly one
+// frame later, so for video the check also looks one frame back.
+func hopelessFor(data []byte, opt Options) bool {
+	if !hopeless(data) {
+		return false
+	}
+	if opt.FrameRows > 0 && opt.Width > 0 {
+		fb := opt.FrameRows * opt.Width
+		if len(data) >= 2*fb && repeatsAt(data, fb) {
+			return false
+		}
+	}
+	return true
+}
+
+// repeatsAt reports whether a noticeable share (over 5%) of the bytes equal the
+// byte `lag` positions earlier, judged on a sample spread over the data. Random
+// data matches about 0.4% of the time.
+func repeatsAt(data []byte, lag int) bool {
+	n := len(data) - lag
+	if n <= 0 {
+		return false
+	}
+	step := max(1, n/65536)
+	same, total := 0, 0
+	for i := lag; i < len(data); i += step {
+		total++
+		if data[i] == data[i-lag] {
+			same++
+		}
+	}
+	return same*20 > total
+}
+
 // hopeless is the quick reject: it recognises data none of the modes can
 // shrink, so the expensive searches are skipped. It is a heuristic and can only
 // cost compression, never correctness, since stored is always valid. Data is
@@ -201,9 +236,20 @@ func hopeless(data []byte) bool {
 // coder, which is slow: the best candidate from the DEFLATE ranking, a plain
 // byte stream (width 0), and the best candidate with no chain (its width gives
 // the coder rows to look up, without any transform). Large inputs get fewer.
-func cmAttempts(cands []prep.Candidate, dataLen, maxAttempts int) []prep.Candidate {
+func cmAttempts(cands []prep.Candidate, dataLen, maxAttempts int, video bool) []prep.Candidate {
 	var out []prep.Candidate
-	if len(cands) > 0 {
+	if video {
+		// DEFLATE's ranking of a frame difference says little about how well the
+		// coder will do with it, so the best one is always tried (first, so no
+		// limit below can drop it) next to the ordinary candidates.
+		for _, c := range cands {
+			if len(c.Chain) > 0 && (c.Chain[0].Kind == prep.DeltaFrameSub || c.Chain[0].Kind == prep.DeltaFrameXor) {
+				out = append(out, c)
+				break
+			}
+		}
+	}
+	if len(cands) > 0 && !(len(out) > 0 && out[0].Width == cands[0].Width && out[0].Chain.Equal(cands[0].Chain)) {
 		out = append(out, cands[0])
 	}
 	out = append(out, prep.Candidate{}) // plain stream
@@ -221,6 +267,9 @@ func cmAttempts(cands []prep.Candidate, dataLen, maxAttempts int) []prep.Candida
 		limit = 1
 	case dataLen > 1<<20:
 		limit = 2
+	}
+	if video {
+		limit = max(limit, 3)
 	}
 	if maxAttempts > 0 {
 		limit = maxAttempts

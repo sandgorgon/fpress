@@ -35,15 +35,23 @@ const (
 	// the planes: w x h becomes (w/K) x (K*h). Needs w % K == 0. It separates,
 	// for example, the high and low bytes of 16-bit samples.
 	Deinterleave
+	// DeltaFrameSub replaces each row with (row - the row K rows above) mod
+	// 256, for video: K is the number of rows in one frame, so every pixel is
+	// stored as its change since the previous frame. The first K rows are kept.
+	DeltaFrameSub
+	// DeltaFrameXor is the same with XOR instead of subtraction.
+	DeltaFrameXor
 )
 
 const (
-	MaxSteps = 8  // longest chain accepted
-	MinK     = 2  // Deinterleave stride bounds
-	MaxK     = 16 //
+	MaxSteps = 8 // longest chain accepted
+	// MaxFrameRows bounds K for the frame steps (stored in two bytes).
+	MaxFrameRows = 1<<16 - 1
+	MinK         = 2  // Deinterleave stride bounds
+	MaxK         = 16 //
 )
 
-// Step is one operation. K is used only by Deinterleave.
+// Step is one operation. K is used only by Deinterleave and the frame steps.
 type Step struct {
 	Kind Kind
 	K    int
@@ -63,20 +71,31 @@ func (s Step) String() string {
 		return "bitplanes"
 	case Deinterleave:
 		return fmt.Sprintf("deint%d", s.K)
+	case DeltaFrameSub:
+		return fmt.Sprintf("frame-sub%d", s.K)
+	case DeltaFrameXor:
+		return fmt.Sprintf("frame-xor%d", s.K)
 	}
 	return fmt.Sprintf("kind(%d)", s.Kind)
 }
 
 func (s Step) check() error {
-	if s.Kind < DeltaUpSub || s.Kind > Deinterleave {
+	if s.Kind < DeltaUpSub || s.Kind > DeltaFrameXor {
 		return fmt.Errorf("prep: unknown step kind %d", s.Kind)
 	}
-	if s.Kind == Deinterleave {
+	switch s.Kind {
+	case Deinterleave:
 		if s.K < MinK || s.K > MaxK {
 			return fmt.Errorf("prep: deinterleave stride %d outside [%d,%d]", s.K, MinK, MaxK)
 		}
-	} else if s.K != 0 {
-		return fmt.Errorf("prep: step %v takes no parameter", s)
+	case DeltaFrameSub, DeltaFrameXor:
+		if s.K < 1 || s.K > MaxFrameRows {
+			return fmt.Errorf("prep: frame height %d outside [1,%d]", s.K, MaxFrameRows)
+		}
+	default:
+		if s.K != 0 {
+			return fmt.Errorf("prep: step %v takes no parameter", s)
+		}
 	}
 	return nil
 }
@@ -197,13 +216,17 @@ func toDense(m matrix.Matrix) *matrix.Dense {
 // ---- stream form -----------------------------------------------------------
 
 // AppendBinary appends the chain: a count byte, then per step a kind byte
-// (followed by K for Deinterleave).
+// (followed by K for Deinterleave: one byte; for the frame steps: two bytes,
+// little-endian).
 func (c Chain) AppendBinary(b []byte) []byte {
 	b = append(b, byte(len(c)))
 	for _, s := range c {
 		b = append(b, byte(s.Kind))
-		if s.Kind == Deinterleave {
+		switch s.Kind {
+		case Deinterleave:
 			b = append(b, byte(s.K))
+		case DeltaFrameSub, DeltaFrameXor:
+			b = append(b, byte(s.K), byte(s.K>>8))
 		}
 	}
 	return b
@@ -232,6 +255,13 @@ func ParseChain(b []byte) (Chain, int, error) {
 			}
 			s.K = int(b[pos])
 			pos++
+		}
+		if s.Kind == DeltaFrameSub || s.Kind == DeltaFrameXor {
+			if pos+1 >= len(b) {
+				return nil, 0, errors.New("prep: truncated chain")
+			}
+			s.K = int(b[pos]) | int(b[pos+1])<<8
+			pos += 2
 		}
 		if err := s.check(); err != nil {
 			return nil, 0, err
