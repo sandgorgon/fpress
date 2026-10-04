@@ -773,7 +773,7 @@ whole-input pass was writing when the two ran side by side. Harmless in practice
 always false there) but a race; the segmented pass no longer reads shared state.
 
 ### Still open from the assessment
-Larger root blocks (dependency-aware planning was measured and dropped, see the end); references across
+Dependency-aware planning, approximate matching and larger root blocks were measured and dropped (see the end); references across
 super-segments; denser domain grids for unaligned copies; approximate matching; cost-model
 calibration.
 
@@ -864,3 +864,38 @@ matching "nearly the same" blocks and patching the differences pay? Measured on 
 Decision: **do not build approximate matching.** Terrain-like data has no near-copies, and noisy
 exact data is already handled about as well by cm. Remaining candidate: larger/flexible root
 blocks (point 2), to be measured next.
+
+## Measurement: the root-block issue (it is not the root blocks)
+Question (from the approximate-matching round): a tile map with 1% noise got zero recipes although
+half its 8x8 blocks have an exact copy. Are the 16x16 root blocks the cause? Measured with temporary
+tests (removed), fractal-mode serialized size, default options unless stated.
+
+What happens: the matcher finds the copies (512x512, 1% noise: 12 of 1,024 16x16 nodes, 2,140 of
+4,096 8x8, 13,775 of 16,384 4x4 have a same-scale recipe). The planner then uses them (7,319
+recipes, 2,414 anchors), but that plan is bigger than the no-copy plan (20,175 vs 17,279 B), so
+`Encode`'s "plan again without copies, keep the smaller" step throws it away. The cause is
+**thousands of tiny (4x4) copies and the fragmented anchors around them**: the planner prices an
+anchor at ~1 byte/cell, but anchors made of tile rows compress far better inside a big block, and
+splitting a root into 4x4 pieces destroys that context. This is the "cost-model calibration" item.
+
+| input | default | copies only for blocks >= 8 | root 32 or 64, min 8 |
+|---|---|---|---|
+| tile map 512, 1% noise | 17,279 (0 recipes) | 14,340 | 14,437 / 14,521 |
+| tile map 512, 0.1% noise | 6,750 | 4,853 | 4,966 / 5,093 |
+| tile map 1024, 1% noise | 64,388 (0 recipes) | 54,875 | 55,121 / 55,525 |
+| tile map 1024, no noise | 8,997 | 8,997 | 9,073 / 9,248 |
+
+- Larger root blocks do **not** help (and slightly hurt): the whole gain comes from not offering
+  copies to 4x4 blocks (`CopyMinSize=8`, or `MinBlock=8`). -17% / -28% / -15% on the noisy files,
+  no change on the clean one. (Copies below 16 only: 12 recipes, no gain.)
+- It does not change what ships. Whole-pipeline (`fpress bench`), the cm coder wins on every tile
+  map, noisy or clean, up to 4096x4096: clean 1024 / 2048 / 4096: cm 6,478 / 23,080 / 89,236 vs
+  fractal 9,022 / 29,693 / 109,707; 1% noise: cm 34,203 / 133,582 / 529,660 vs fractal 64,414 /
+  252,778 / 1,011,539. Even with the tweak fractal (54,875 at 1024) stays well above cm (34,203).
+- So same-scale copies do not beat cm on this kind of data at these sizes; the fractal stage
+  matters for the huge, strongly self-similar files (the GiB Sierpinski) where cm cannot see a
+  pattern that repeats far away.
+
+Decision: larger root blocks dropped. `CopyMinSize=8` is a safe small improvement to fractal mode
+(never larger in these measurements) but changes no shipped result, so it is not applied yet;
+it needs a check on records / mixed files before it becomes a default.
