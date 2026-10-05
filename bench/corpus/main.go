@@ -22,8 +22,7 @@ const side = 1024 // image-like files are side x side bytes (1 MiB)
 
 func main() {
 	out := flag.String("out", "corpus", "directory to write the files into")
-	video := flag.Bool("video", false, "write only the synthetic raw-video clips (RGB24, 320x180, 60 frames)")
-	motion := flag.Bool("motion", false, "write only the raw-video clips with camera or scroll motion")
+	video := flag.Bool("video", false, "write only the five synthetic raw-video clips (RGB24, 320x180, 60 frames)")
 	flag.Parse()
 	if err := os.MkdirAll(*out, 0o755); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -45,15 +44,6 @@ func main() {
 		{"random.bin", random(1 << 20)},
 		{"zeros.bin", make([]byte, 1<<20)},
 	}
-	if *motion {
-		files = []struct {
-			name string
-			data []byte
-		}{
-			{"video-scroll.rgb", scrollVideo()},
-			{"video-pan.rgb", panVideo()},
-		}
-	}
 	if *video {
 		files = []struct {
 			name string
@@ -62,6 +52,8 @@ func main() {
 			{"video-screen.rgb", screenVideo()},
 			{"video-cartoon.rgb", cartoonVideo()},
 			{"video-camera.rgb", cameraVideo()},
+			{"video-scroll.rgb", scrollVideo()},
+			{"video-pan.rgb", panVideo()},
 		}
 	}
 	for _, f := range files {

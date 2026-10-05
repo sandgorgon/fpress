@@ -12,8 +12,19 @@ const (
 	maxIn     = maxCtx + 2 // + match model + bias
 	minMatch  = 5
 	maxMatch  = 65535
-	apmRate   = 7
-	maxA2Bits = 12 // contexts of the second final-stage table (more cost time and cache for ~0.04%)
+
+	// The long-context match lookup. The short one (minMatch bytes) takes the
+	// most recent place that context occurred, which in repetitive data (a few
+	// glyph shapes, a palette of tiles, rows of a video frame) is a nearby
+	// look-alike, not the right place. A context of longMatch bytes is rarely
+	// ambiguous: in a video it finds the same spot one frame earlier, however
+	// far back that is. Measured on text, code, executables, records and noisy
+	// video it changes nothing (under 0.1%); on clean video it is 10 times smaller.
+	longMatch  = 64
+	longVerify = 512 // how far back a long candidate is checked
+	longMul    = 0x2F0B4A27
+	apmRate    = 7
+	maxA2Bits  = 12 // contexts of the second final-stage table (more cost time and cache for ~0.04%)
 )
 
 // Tuned on a small corpus of text, code, tables, gradients and a self-similar
@@ -54,6 +65,8 @@ type model struct {
 
 	// match model
 	mt        []int32 // hash of the last minMatch bytes -> position after them
+	mt2       []int32 // rolling hash of the last longMatch bytes -> position after them
+	lroll     uint32  // that rolling hash
 	mshift    uint
 	mptr      int
 	mlen      int
@@ -100,9 +113,9 @@ func newModel(buf []byte, n, stride int) *model {
 // reset puts m into the state of a brand-new model for a stream of n bytes.
 func (m *model) reset(buf []byte, n, stride int) {
 	tablesOnce.Do(initTables)
-	tab, mt, w, a1, a2 := m.tab, m.mt, m.w, m.a1, m.a2 // keep the big allocations
+	tab, mt, mt2, w, a1, a2 := m.tab, m.mt, m.mt2, m.w, m.a1, m.a2 // keep the big allocations
 	*m = model{tb: m.tb, stride: stride, buf: buf, c0: 1, mpred: -1, mexp: -1}
-	m.tab, m.mt, m.w, m.a1, m.a2 = tab, mt, w, a1, a2
+	m.tab, m.mt, m.mt2, m.w, m.a1, m.a2 = tab, mt, mt2, w, a1, a2
 
 	m.nctx = numOrders
 	if stride > 0 {
@@ -129,6 +142,11 @@ func (m *model) reset(buf []byte, n, stride int) {
 		m.mt = make([]int32, 1<<m.tb)
 	} else {
 		clear(m.mt)
+	}
+	if m.mt2 == nil {
+		m.mt2 = make([]int32, 1<<m.tb)
+	} else {
+		clear(m.mt2)
 	}
 	m.mshift = m.shift
 	m.a1.init(256)
@@ -322,10 +340,47 @@ func (m *model) byteDone() {
 		}
 		m.mt[h] = int32(m.pos)
 	}
+	m.longMatch()
 	m.mpred = -1
 	if m.mlen > 0 {
 		m.mpred = int(m.buf[m.mptr])
 	}
+}
+
+// longPow is longMul^longMatch, what the oldest byte of the window is
+// multiplied by once the window is full.
+var longPow = func() uint32 {
+	p := uint32(1)
+	for i := 0; i < longMatch; i++ {
+		p *= longMul
+	}
+	return p
+}()
+
+// longMatch keeps the rolling hash of the last longMatch bytes, and while the
+// current match is shorter than that, adopts the place the same long context
+// occurred before if it really agrees for at least longMatch bytes.
+func (m *model) longMatch() {
+	m.lroll = m.lroll*longMul + uint32(m.buf[m.pos-1]) + 1
+	if m.pos > longMatch {
+		m.lroll -= (uint32(m.buf[m.pos-1-longMatch]) + 1) * longPow
+	}
+	if m.pos < longMatch {
+		return
+	}
+	h := (m.lroll * 0x9E3779B1) >> m.mshift
+	if m.mlen < longMatch {
+		if cand := int(m.mt2[h]); cand > 0 {
+			l := 0
+			for l < longVerify && cand-1-l >= 0 && m.buf[cand-1-l] == m.buf[m.pos-1-l] {
+				l++
+			}
+			if l >= longMatch && l > m.mlen {
+				m.mptr, m.mlen = cand, l
+			}
+		}
+	}
+	m.mt2[h] = int32(m.pos)
 }
 
 // apm refines a probability given a small context: it maps the stretched

@@ -53,7 +53,8 @@ keeps whichever one produced the smallest result:
    byte as the difference from the one before it". A gradient that looks like noise to other tools becomes a
    few hundred bytes.
 4. **Context mixing.** A slower, stronger coder that predicts every byte from the bytes around it
-   (left, above, earlier in the row) using several small models that vote. This is the workhorse for
+   (left, above, earlier in the row, and a match model that follows repeats at any distance) using
+   several small models that vote. This is the workhorse for
    text, programs and audio-like data, and it wins most files.
 5. **The fractal stage.** The file is cut into blocks, and each block is matched against every
    other part of the file. If a block is an exact copy of another one (possibly rotated, flipped,
@@ -81,12 +82,12 @@ with fixed seeds, so you can reproduce every row (see "Reproducing" below). Size
 
 | file | what it is | original | fpress | xz -9e | zstd -19 | bzip2 -9 |
 |---|---|---:|---:|---:|---:|---:|
-| sierpinski | exactly self-similar image | 1,048,576 | **365** | 2,208 | 2,922 | 5,614 |
+| sierpinski | exactly self-similar image | 1,048,576 | **359** | 2,208 | 2,922 | 5,614 |
 | gradient | smooth ramp | 1,048,576 | **215** | 792 | 981 | 2,746 |
 | tilemap16 | grid of 16x16 tiles from a palette of 6 | 1,048,576 | **3,830** | 34,736 | 49,198 | 35,883 |
 | tilemap8-noisy | same idea, 8x8 tiles, 1% of bytes corrupted | 1,048,576 | **34,203** | 88,216 | 109,540 | 97,028 |
-| records | 16,384 fixed-size 64-byte records | 1,048,576 | **53,322** | 77,796 | 109,639 | 96,977 |
-| terrain | rough fractal landscape | 1,048,576 | **84,159** | 106,144 | 119,670 | 123,936 |
+| records | 16,384 fixed-size 64-byte records | 1,048,576 | **53,348** | 77,796 | 109,639 | 96,977 |
+| terrain | rough fractal landscape | 1,048,576 | **84,163** | 106,144 | 119,670 | 123,936 |
 | audio | 16-bit samples, two tones plus noise | 1,048,576 | **662,339** | 978,840 | 1,009,853 | 832,854 |
 | text | English-like words, 80-column lines | 1,048,576 | **209,137** | 280,252 | 280,037 | 249,694 |
 | mixed | five of the above, joined | 360,448 | **85,313** | 92,464 | 93,533 | 96,881 |
@@ -101,8 +102,8 @@ say little about your data. The next table is closer to everyday files.
 
 | file | original | fpress default | fpress fast | xz -9e | zstd -19 |
 |---|---:|---:|---:|---:|---:|
-| Go source code (1.7 MB of `net/http`) | 1,778,519 | **307,088** | 351,892 | 352,404 | 358,078 |
-| compiled program (Go binary, 3.4 MB) | 3,567,314 | 1,942,418 | 1,952,279 | **1,914,776** | 1,982,783 |
+| Go source code (1.7 MB of `net/http`) | 1,778,519 | **306,858** | 351,788 | 352,404 | 358,078 |
+| compiled program (Go binary, 3.4 MB) | 3,567,314 | 1,942,042 | 1,952,271 | **1,914,776** | 1,982,783 |
 | a `.gz` file (already compressed) | 470,125 | 470,138 | 470,138 | 470,216 | **469,906** |
 
 On source text fpress is about 13% smaller than `xz`. On a compiled program it is within about 1.5% of
@@ -132,24 +133,30 @@ compares each frame with the one before, storing only what changed:
 ```
 
 Formats: `gray8`, `gray16`, `rgb24`, `bgr24`, `rgba`, `bgra` and `yuv420` (planar). The default is `rgb24`.
-Tested on three generated clips (RGB, 320x180, 60 frames, 10.4 MB each; `bench/video.sh` reproduces them):
+Tested on five generated clips (RGB, 320x180, 60 frames, 10.4 MB each; `bench/video.sh` reproduces them),
+default preset, in bytes:
 
-| clip | no hint | `-video` | `-video` fast | xz -9e | zstd -19 |
-|---|---:|---:|---:|---:|---:|
-| screen recording (static desktop, moving cursor) | 163,925 | **6,330** | 28,544 | 6,936 | 8,072 |
-| flat-colour animation | 24,691 | **4,409** | 8,255 | 6,228 | 19,241 |
-| camera footage with sensor noise | 4,867,712 | 4,804,961 | 4,835,705 | 6,447,220 | 6,779,961 |
+| clip | no hint | `-video` | xz -9e | zstd -19 |
+|---|---:|---:|---:|---:|
+| screen recording (static desktop, moving cursor) | 7,672 | **6,189** | 6,936 | 8,072 |
+| flat-colour animation | 15,087 | **3,748** | 6,228 | 19,241 |
+| scrolling page of text | 10,610 | **8,276** | 9,188 | 11,517 |
+| panning scene | 37,284 | **19,456** | 22,168 | 35,369 |
+| camera footage with sensor noise | 4,867,712 | 4,804,961 | 6,447,220 | 6,779,961 |
 
-Without the hint fpress was 4 to 20 times *worse* than `xz` on the two clean clips: the repeat sits a
-whole frame away (172,800 bytes), further than its coders look. The hint fixes that: on clean video it is 24 times
-smaller on the screen recording and now beats `xz`. On noisy camera footage nothing changes: differencing two noisy
-frames makes the noise worse, so the compressor keeps its ordinary result (still about 25% smaller than `xz`).
+Two things make this work. The compressor's matcher looks for repeats of the last 64 bytes at any
+distance, so it finds "the same row, one frame ago" even though that is 170,000 bytes back. (Before
+that was added, fpress was 4 to 20 times *worse* than `xz` on these clips.) And `-video` adds the
+frame difference, which turns a static scene into almost nothing and lets a moving cursor or sprite stand out. Even
+without the hint the first helps a lot; the hint buys another 20-50% on clean video.
 
-Be realistic about this. There is no motion tracking, so a panning camera or a moving object gains nothing;
-real camera video is noisy, so expect the third row, not the first two. It takes about 20-30 s to
-compress 10 MB (decompress 7-12 s); `-preset fast` is 3 times quicker but needs a keyframe per segment, so it
-is larger on clean video. A dedicated lossless video codec (FFV1, for example) will usually do better on camera
-footage. The clips are synthetic; I have not tested real video.
+Be realistic about this. On noisy camera footage the hint changes little: differencing two noisy frames
+makes the noise worse, so the compressor keeps whichever is smaller (still about 25% smaller than `xz`).
+There is no motion tracking. Content that moves as an exact copy (scrolling, a pan) works; sub-pixel motion or lighting
+changes do not. Compressing 10 MB takes about 20-30 s (decompress 7-12 s). `-preset fast` is about 3 times
+quicker but cuts the file into independent pieces, so it is much larger on video (28 KB on the screen
+recording). A dedicated lossless video codec such as FFV1 will usually do better on camera footage. The clips
+are synthetic; I have not tested real video.
 
 ### Speed and memory
 
@@ -162,7 +169,7 @@ The default preset trades time for size. Times for the 1 MiB files above, compre
 | `fastest` | about 0.1 s / near zero | about 15 MB | no context mixing and no fractal stage: deflate-class sizes (the text file is 326,648 B, 17% bigger than `xz`) |
 
 The fractal stage is the cost of `default`. `fast` loses it, which is why the same Sierpinski
-image is 365 bytes with `default` and 8,189 with `fast`, and the tile map is 3,830 against 35,348.
+image is 359 bytes with `default` and 6,771 with `fast`, and the tile map is 3,830 against 35,501.
 If your data is not self-similar, `fast` costs you almost nothing. Before spending time on
 the fractal stage the compressor takes a quick sample of the file and skips the stage when the file shows
 no repeated blocks, which cut the CPU time on ordinary files by more than half in our measurements.
@@ -246,7 +253,7 @@ were measured and dropped), the problems found along the way, and what is still 
 
 ## Status
 
-Working and tested; the container format is at version 5 and is still allowed to change between
+Working and tested; the container format is at version 6 and is still allowed to change between
 versions (there is no compatibility promise yet). Ideas still open, none of them measured to be a
 big win so far: matching across the boundaries of very large files, denser search for copies that
 are not aligned to the block grid, and calibrating the planner's cost estimates.

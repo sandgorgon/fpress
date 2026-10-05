@@ -1,8 +1,8 @@
 #!/bin/bash
 # Benchmark fpress on synthetic raw video (RGB24, 320x180, 60 frames, 10.4 MB each):
-# a screen recording, flat-colour animation, and noisy camera footage.
+# a screen recording, flat-colour animation, noisy camera footage, a scrolling page and a panning scene.
 #
-#   bench/video.sh            run all three (about 3 minutes)
+#   bench/video.sh            run all three (about 5 minutes)
 #   bench/video.sh -quick     only the fast preset
 #
 # Columns: fpress without any video hint, fpress with -video, and xz / zstd for reference.

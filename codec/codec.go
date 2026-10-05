@@ -99,7 +99,7 @@ func (m Mode) String() string {
 
 const (
 	magic   = "FPRS"
-	version = 5
+	version = 6
 
 	// DefaultMaxSize is the largest original length Decompress will accept.
 	DefaultMaxSize = 1 << 30

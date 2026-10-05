@@ -991,3 +991,60 @@ vectors too (xz-compressed). Then compress the difference stream with fpress. By
   boundaries are not free. It needs a new stream element (vectors), a block search (time), and a
   step that is no longer a plain matrix operation.
 Decision: not built. Worth reconsidering if clean panning/scrolling footage is a target.
+
+## Match model: measured, then a long-context lookup added (container format version 6)
+Question (from the video work): `xz` beat us on scrolling and panning clips because it finds repeats
+at any distance. Does the context-mixing coder's own match model (`entropy/model.go`: hash of the
+last 5 bytes -> the most recent place they occurred) miss them?
+
+**Measured first** (a harness that drives the model and attributes the bits; 3 MB prefixes of the clips):
+- On the scrolling clip the match model was active on every byte and right 95% of the time, but the
+  wrong 5% cost 55% of the bits, and **every later frame cost about as much as the first**
+  (2,866 B for frame 1, ~2,750 B for each of the next): it never used the previous frame. `xz` pays
+  about 60 B per extra frame (3,948 B for one frame, 5,032 B for 18).
+- Why: the clip's text is made of 10 glyph shapes, so any 5-byte context occurs hundreds of times.
+  "Most recent occurrence" lands on a look-alike in the same frame; 32 bytes of verification cannot
+  tell them apart; and a new candidate is only looked for after the current one fails.
+
+**Variants tried (bytes for scroll / pan / screen; text, go source, executable, records within 0.1-6%):**
+
+| variant | scroll | pan | screen | side effects |
+|---|---:|---:|---:|---|
+| base | 49,624 | 38,160 | 41,645 | |
+| keep following the same offset after a miss ("recover") | +1% | -78% | **+38%** | go source +6%, executable -1.5% |
+| 4 recent candidates per hash | -0.4% | -17% | -2% | records +0.4% |
+| longer minimum (8 / 12 bytes) | -0.2 / -0.8% | -35 / -55% | -1 / -2% | records +5%, go source +1-4%, executable +1-3% |
+| retry the last 4 successful distances (LZMA "rep" idea) | -0.4% | -19% | -1% | none |
+| deeper verification (1024 B) alone | -0.1% | -0.3% | 0 | none |
+| **second lookup keyed on the last 64 bytes** | **-92%** | **-77%** | **-90%** | none (<0.1%) |
+
+Only the long-context lookup fixes scrolling; the others help panning or trade against ordinary
+files. Contexts of 32 and 128 bytes also work but 64 was best overall (24 was not enough on the screen clip).
+
+**Built:** `model.longMatch`: a rolling hash (polynomial, O(1) per byte) of the last 64 bytes into its own
+table; while the current match is shorter than 64, adopt the place that long context occurred if it
+verifies for at least 64 bytes (checked up to 512 back). Costs 4 bytes per table slot (+~20 MB peak
+on the 1 MiB runs), no measurable time. Streams written by older versions no longer decode (container
+version 5 -> 6); five fractal golden fingerprints changed by 0-2 bytes and were updated. Tests: a
+far repeat among look-alikes must cost almost nothing (8,061 B without the feature, 1,833 B with it)
+and the rolling hash must equal a from-scratch hash. Race detector, 386 and the full suite pass.
+
+**Results, default preset (bytes), whole pipeline:**
+
+| clip | before | now, no hint | now, `-video` | `xz -9e` | zstd -19 --long |
+|---|---:|---:|---:|---:|---:|
+| screen recording | 163,925 | 7,672 | **6,189** | 6,936 | 8,072 |
+| flat-colour animation | 24,691 | 15,087 | **3,748** | 6,228 | 19,241 |
+| scrolling page | 179,333 | 10,610 | **8,276** | 9,188 | 11,517 |
+| panning scene | 89,348 | 37,284 | **19,456** | 22,168 | 35,369 |
+| camera + noise | 4,867,712 | 4,867,712 | 4,804,961 | 6,447,220 | 6,779,961 |
+
+The ordinary corpus (`bench/run.sh`) is unchanged to within 0.05% (records 53,322 -> 53,348, terrain
+84,159 -> 84,163, mixed fast 86,044 -> 86,026), the 1 MiB Sierpinski with `fast` improved 8,189 -> 6,771.
+All outputs round trip. `fast` with `-video` stays larger (27-34 KB) because its segments are independent.
+
+**This answers the motion-compensation question the other way:** the oracle (ideal shifts, vectors
+counted) gave 18,409 B for scroll and 17,473 B for pan; the long-context lookup alone gives 8,276 and
+19,456 with no motion search, no vectors and no format element beyond the frame size. Motion
+compensation is dropped. What it does not cover: shifted content that is not an exact copy (sub-pixel
+motion, lighting changes, noise).
