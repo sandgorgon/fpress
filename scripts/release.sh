@@ -9,7 +9,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 dry=0; [ "${1:-}" = "--dry-run" ] && dry=1
-# pushes authenticate through gh, so no git credential setup is needed
+# network git commands authenticate through gh, so no git credential setup is needed
+gitgh() { git -c credential.helper= -c credential.helper='!gh auth git-credential' "$@"; }
 die() { echo "release: $*" >&2; exit 1; }
 
 ver=$(sed -n 's/^const version = "\(.*\)"$/\1/p' cmd/fpress/main.go)
@@ -22,7 +23,7 @@ echo "== releasing $tag"
 [ -z "$(git status --porcelain)" ] || die "working tree is not clean"
 if [ $dry = 0 ]; then
 	git remote get-url origin >/dev/null 2>&1 || die "no 'origin' remote"
-	git fetch -q origin
+	gitgh fetch -q origin
 	[ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main 2>/dev/null || echo none)" ] || die "main is not pushed (or origin/main differs): push first"
 	git rev-parse -q --verify "refs/tags/$tag" >/dev/null && die "tag $tag already exists"
 	gh release view "$tag" >/dev/null 2>&1 && die "GitHub release $tag already exists"
@@ -82,7 +83,7 @@ fi
 # --- publish -----------------------------------------------------------------
 echo "== tag, push, publish"
 git tag -a "$tag" -m "fpress $ver"
-git -c credential.helper= -c credential.helper='!gh auth git-credential' push origin "$tag"
+gitgh push origin "$tag"
 gh release create "$tag" dist/*.tar.gz dist/*.zip dist/SHA256SUMS \
 	--title "fpress $ver" --notes-file dist/NOTES.md
 echo "== released $tag"
