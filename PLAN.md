@@ -964,3 +964,30 @@ a pure shift gains nothing from frame differencing; real camera footage is noisy
 camera row, not the screen row. Frames larger than ~16 MiB (4K RGB) cannot fit two frames in a
 context-mixing segment and fall back to the other modes. The files are synthetic; no real video
 has been tested.
+
+### Measurement: is motion compensation worth building? (not now)
+Two more generated clips, same size as the others (`go run ./bench/corpus -motion`): a scrolling
+page of text under a fixed title bar and side panel (3 rows per frame), and a flat-colour scene
+under a camera panning 2 pixels per frame with a sprite of its own. Clean, no noise.
+
+Oracle (outside fpress, an upper bound): for every 16x16 block of every frame, find the best shift
+of +-8 pixels against the previous frame, store the difference after shifting, and count the shift
+vectors too (xz-compressed). Then compress the difference stream with fpress. Bytes:
+
+| clip | fpress, no hint | `-video` (frame difference) | oracle: shifted difference + vectors | `xz -9e` | zstd -19 --long |
+|---|---:|---:|---:|---:|---:|
+| scroll | 179,333 | 170,534 | 16,637 + 1,772 = 18,409 | **9,188** | 11,520 |
+| pan | 89,348 | 57,590 | 16,569 + 904 = 17,473 | 22,168 | 35,370 |
+
+- Frame difference alone does almost nothing for shifting content (it needs every pixel to stay
+  put): scroll 170 KB vs xz 9 KB; pan 58 KB vs xz 22 KB.
+- Motion compensation would close most of that: 9x on scroll, 3.3x on pan. Even a perfect version
+  would still lose to xz on scrolling text by 2x (the new text entering at the bottom is real
+  information; xz codes it better, probably through long matches of the repeated glyph tiles),
+  and beat xz by 21% on the pan.
+- The camera clip with noise would not gain (the previous frame's noise comes along), so this only
+  helps clean moving content: scrolling, panning, sliding sprites.
+- A real implementation would do worse than the oracle: its vector search has a cost and block
+  boundaries are not free. It needs a new stream element (vectors), a block search (time), and a
+  step that is no longer a plain matrix operation.
+Decision: not built. Worth reconsidering if clean panning/scrolling footage is a target.

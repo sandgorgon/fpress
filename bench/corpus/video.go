@@ -123,3 +123,93 @@ func cameraVideo() []byte {
 	}
 	return out
 }
+
+// scrollVideo: a web-page style screen recording. A tall page of "text" (lines made
+// from a few glyph tiles) scrolls up 3 rows per frame under a fixed title bar and
+// a fixed side panel. Every pixel of the page moves, none changes.
+func scrollVideo() []byte {
+	rng := rand.New(rand.NewSource(21))
+	var glyphs [10][8 * 8][3]byte
+	for i := range glyphs {
+		for j := range glyphs[i] {
+			if rng.Intn(3) == 0 {
+				glyphs[i][j] = [3]byte{20, 20, 30}
+			} else {
+				glyphs[i][j] = [3]byte{245, 245, 240}
+			}
+		}
+	}
+	const pageH = vh + vframes*3 + 16
+	page := make([][vw]([3]byte), pageH)
+	for y := range page {
+		for x := range page[y] {
+			page[y][x] = [3]byte{245, 245, 240}
+		}
+	}
+	for line := 0; line+10 < pageH; line += 10 {
+		if rng.Intn(6) == 0 {
+			continue // blank line between paragraphs
+		}
+		for col := 0; col < 30; col++ {
+			if rng.Intn(5) == 0 {
+				continue
+			}
+			g := glyphs[rng.Intn(len(glyphs))]
+			for j := 0; j < 64; j++ {
+				page[line+j/8][70+col*8+j%8] = g[j]
+			}
+		}
+	}
+	var out []byte
+	for n := 0; n < vframes; n++ {
+		var f frame
+		for y := 0; y < vh; y++ {
+			for x := 0; x < vw; x++ {
+				f[y][x] = page[y+n*3][x]
+			}
+		}
+		f.fill(0, 0, vw, 14, 40, 60, 110)
+		f.fill(0, 14, 60, vh-14, 210, 215, 225)
+		out = f.bytes(out)
+	}
+	return out
+}
+
+// panVideo: flat-colour animation seen through a camera that pans right 2 pixels
+// per frame (hills and clouds are part of the scene, a sprite moves on its own).
+func panVideo() []byte {
+	const sw = vw + vframes*2 + 4
+	scene := make([][sw][3]byte, vh)
+	for y := 0; y < vh; y++ {
+		c := byte(120 + y/3)
+		for x := 0; x < sw; x++ {
+			scene[y][x] = [3]byte{c / 2, c, 255}
+		}
+	}
+	for x := 0; x < sw; x++ { // hills
+		top := 120 + int(18*math.Sin(float64(x)/17)) + int(9*math.Sin(float64(x)/5.3))
+		for y := top; y < vh; y++ {
+			scene[y][x] = [3]byte{60, byte(130 + (y-top)/2), 60}
+		}
+	}
+	for c := 0; c < 9; c++ { // clouds and trees: flat rectangles at fixed scene positions
+		x0, y0 := c*47+11, 20+(c*29)%50
+		for y := y0; y < y0+10; y++ {
+			for x := x0; x < x0+24 && x < sw; x++ {
+				scene[y][x] = [3]byte{250, 250, 250}
+			}
+		}
+	}
+	var out []byte
+	for n := 0; n < vframes; n++ {
+		var f frame
+		for y := 0; y < vh; y++ {
+			for x := 0; x < vw; x++ {
+				f[y][x] = scene[y][x+n*2]
+			}
+		}
+		f.fill(40+n*3%200, 100, 14, 14, 200, 40, 40) // sprite with its own motion
+		out = f.bytes(out)
+	}
+	return out
+}
