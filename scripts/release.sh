@@ -9,6 +9,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 dry=0; [ "${1:-}" = "--dry-run" ] && dry=1
+# pushes authenticate through gh, so no git credential setup is needed
 die() { echo "release: $*" >&2; exit 1; }
 
 ver=$(sed -n 's/^const version = "\(.*\)"$/\1/p' cmd/fpress/main.go)
@@ -81,7 +82,7 @@ fi
 # --- publish -----------------------------------------------------------------
 echo "== tag, push, publish"
 git tag -a "$tag" -m "fpress $ver"
-git push origin "$tag"
+git -c credential.helper= -c credential.helper='!gh auth git-credential' push origin "$tag"
 gh release create "$tag" dist/*.tar.gz dist/*.zip dist/SHA256SUMS \
 	--title "fpress $ver" --notes-file dist/NOTES.md
 echo "== released $tag"

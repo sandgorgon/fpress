@@ -15,7 +15,7 @@ One script does the checking, building, tagging and publishing: `scripts/release
      version N" line in the README Status section. The script refuses to continue if they disagree.
 3. **If the numbers in the README may have moved** (coder or fractal changes), rerun
    `bench/run.sh` and `bench/video.sh` and update the tables first.
-4. **Push `main`.** The script refuses to release a commit that is not on `origin/main`.
+4. **Push `main`** (`git -c credential.helper='!gh auth git-credential' push`, if git has no GitHub login of its own). The script refuses to release a commit that is not on `origin/main`.
 5. **Dry run:** `scripts/release.sh --dry-run`. It runs `go vet` and all tests (plus the 32-bit
    build), builds every platform into `dist/`, writes `SHA256SUMS`, and smoke-tests the native binary
    (version string, a round trip, statically linked). It changes nothing else.
