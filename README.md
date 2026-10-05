@@ -251,9 +251,15 @@ has also been run under Go's race detector.
 `PLAN.md` is the full engineering record: the design, every measurement (including the ideas that
 were measured and dropped), the problems found along the way, and what is still open.
 
+## License
+
+MIT; see `LICENSE`.
+
 ## Status
 
-Working and tested; the container format is at version 6 and is still allowed to change between
-versions (there is no compatibility promise yet). Ideas still open, none of them measured to be a
+This is version 0.1.0 (`fpress version` prints it). It works and is tested, but it is early:
+**files written by one 0.x version may not open in the next.** The container format is at version 6
+and changed once already, when the match model improved. Until 1.0, keep the original or decompress
+with the same version you compressed with. Ideas still open, none of them measured to be a
 big win so far: matching across the boundaries of very large files, denser search for copies that
 are not aligned to the block grid, and calibrating the planner's cost estimates.

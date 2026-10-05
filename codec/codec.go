@@ -101,6 +101,9 @@ const (
 	magic   = "FPRS"
 	version = 6
 
+	// FormatVersion is the container format version this build writes and reads.
+	FormatVersion = version
+
 	// DefaultMaxSize is the largest original length Decompress will accept.
 	DefaultMaxSize = 1 << 30
 

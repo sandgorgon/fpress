@@ -352,6 +352,15 @@ func TestBuildsWithStandardLibraryOnly(t *testing.T) {
 	}
 }
 
+func TestVersion(t *testing.T) {
+	got := versionString()
+	for _, want := range []string{"fpress " + version, "container format 6"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("version string %q lacks %q", got, want)
+		}
+	}
+}
+
 func TestVideoFlag(t *testing.T) {
 	dir := t.TempDir()
 	// 12 frames of 160x100 RGB: a random still with a small moving square.

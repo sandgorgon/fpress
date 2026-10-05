@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -37,6 +38,8 @@ func main() {
 		err = runDecompress(os.Args[2:])
 	case "bench":
 		err = runBench(os.Args[2:])
+	case "version", "-version", "--version":
+		fmt.Println(versionString())
 	case "-h", "-help", "--help", "help":
 		usage()
 	default:
@@ -49,11 +52,19 @@ func main() {
 	}
 }
 
+// version is the release number of this tool.
+const version = "0.1.0"
+
+func versionString() string {
+	return fmt.Sprintf("fpress %s (container format %d, %s %s/%s)", version, codec.FormatVersion, runtime.Version(), runtime.GOOS, runtime.GOARCH)
+}
+
 func usage() {
 	fmt.Fprint(os.Stderr, `usage:
   fpress compress   [flags] in out    compress a file ("-" = stdin/stdout)
   fpress decompress [-memory 2G] in out  restore a file
   fpress bench      [flags] file...   compare stored / flate / prep / fractal sizes
+  fpress version                      print the version
 
 compress and bench flags: -preset (default|fast|fastest) -memory -big-segment -width -block -iter -stride -max-fractal -tile -min-block -workers -segment -no-cm -max-cm -cm-attempts -no-reject -no-fractal -no-copy -no-gate -no-prep -video WxH[:format]
 bench also takes -head N to use only the first N bytes of each file, and
