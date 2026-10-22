@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- `decompress` shows progress on a terminal too, like `compress`, and takes `-q`.
+  In `codec`: `DecodeOptions.Progress`.
+
 ## 0.2.0
 
 Container format unchanged (version 6): files open in 0.1.x and 0.2.0 alike.

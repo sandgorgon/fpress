@@ -19,6 +19,10 @@ type DecodeOptions struct {
 	// file, so no setting of parallelism can shrink it). The estimates err on
 	// the high side. 0 means no limit and all CPUs.
 	MemoryLimit int64
+
+	// Progress, if not nil, is kept up to date during the call so another
+	// goroutine can show how far it has got (see Progress).
+	Progress *Progress
 }
 
 // ErrMemory means the container cannot be decoded within the memory limit.
@@ -26,8 +30,9 @@ var ErrMemory = errors.New("fpress: not enough memory budget to decode")
 
 // decodeOpts is what the decoders pass around.
 type decodeOpts struct {
-	workers int   // goroutines this decode may use (0 = all CPUs)
-	memory  int64 // memory budget (0 = none)
+	workers  int       // goroutines this decode may use (0 = all CPUs)
+	memory   int64     // memory budget (0 = none)
+	progress *Progress // nil inside a piece, whose progress its parent counts
 }
 
 const (

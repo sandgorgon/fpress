@@ -156,6 +156,7 @@ func decodeSegmented(payload []byte, origLen int, d decodeOpts) ([]byte, error) 
 	jobs := make(chan int)
 	var wg sync.WaitGroup
 	inner := d.inner() // the pieces already run side by side
+	finished := d.progress.segMeter(origLen)
 	for k := 0; k < min(d.cpus(), n); k++ {
 		wg.Add(1)
 		go func() {
@@ -168,6 +169,9 @@ func decodeSegmented(payload []byte, origLen int, d decodeOpts) ([]byte, error) 
 					continue
 				}
 				copy(out[lo:hi], b)
+				if finished != nil {
+					finished.Add(int64(hi - lo))
+				}
 			}
 		}()
 	}

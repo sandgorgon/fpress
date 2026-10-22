@@ -141,7 +141,7 @@ func DecompressStreamOpt(w io.Writer, r io.ReaderAt, size int64, opt DecodeOptio
 	if maxSize <= 0 {
 		maxSize = defaultStreamMax
 	}
-	d := decodeOpts{memory: opt.MemoryLimit}
+	d := decodeOpts{memory: opt.MemoryLimit, progress: opt.Progress}
 	br := bufio.NewReaderSize(io.NewSectionReader(r, 0, size), copyBuf)
 	var fixed [len(magic) + 2]byte
 	if _, err := io.ReadFull(br, fixed[:]); err != nil || string(fixed[:len(magic)]) != magic {
@@ -163,6 +163,7 @@ func DecompressStreamOpt(w io.Writer, r io.ReaderAt, size int64, opt DecodeOptio
 		return 0, fmt.Errorf("%w: truncated header", ErrCorrupt)
 	}
 	want := binary.LittleEndian.Uint32(crcBytes[:])
+	opt.Progress.start(int64(n))
 
 	cw := &crcWriter{w: w, h: crc32.NewIEEE()}
 	if mode == ModeBig {
@@ -177,10 +178,12 @@ func DecompressStreamOpt(w io.Writer, r io.ReaderAt, size int64, opt DecodeOptio
 		if err != nil {
 			return 0, err
 		}
+		opt.Progress.beginPiece(int64(n))
 		out, err := decodePayloadOpt(mode, payload, int(n), d)
 		if err != nil {
 			return 0, wrapCorrupt(err)
 		}
+		opt.Progress.endPiece()
 		if _, err := cw.Write(out); err != nil {
 			return cw.n, err
 		}
@@ -231,6 +234,7 @@ func decodeBigTo(w io.Writer, r io.Reader, origLen uint64, d decodeOpts) error {
 		if _, err := io.ReadFull(br, payload); err != nil {
 			return fmt.Errorf("super-segment at %d: truncated: %w", done, io.ErrUnexpectedEOF)
 		}
+		d.progress.beginPiece(int64(segLen))
 		out, err := decodePayloadOpt(Mode(mode), payload, int(segLen), d)
 		if err != nil {
 			return fmt.Errorf("super-segment at %d: %w", done, err)
@@ -238,6 +242,7 @@ func decodeBigTo(w io.Writer, r io.Reader, origLen uint64, d decodeOpts) error {
 		if _, err := w.Write(out); err != nil {
 			return err
 		}
+		d.progress.endPiece()
 		done += segLen
 	}
 	if _, err := br.ReadByte(); err != io.EOF {

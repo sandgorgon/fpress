@@ -234,7 +234,9 @@ Poor fit:
   turns it off. The percentage counts the slowest work, the context-mixing coder, so it can pause
   while other parts finish, and it moves in steps on the `fast` preset (a batch of slices at a
   time) and on very large files (a piece at a time). With `-no-cm` on an ordinary-sized file it shows
-  only the time. `decompress` shows no progress yet. `-v` prints a summary at the end.
+  only the time. `decompress` shows the same kind of line (`decompressing: 50%, ...`); for a file
+  stored with DEFLATE or the fractal stage it shows only the time, but those decode quickly. `-v`
+  prints a summary at the end of `compress`.
 - **Memory.** Compression plans around `-memory` (default 8G); it is an estimate, not a hard cap.
   Decompression has no limit unless you give `decompress -memory`, in which case it decodes fewer
   pieces at once and refuses, before writing anything, a file that cannot fit.
@@ -321,8 +323,8 @@ back, err := codec.Decompress(packed)
 - `PresetOptions` gives the settings of each preset. Adjust fields afterwards, for example
   `opt.Fractal.MemoryLimit` (the `-memory` flag) or `opt.FrameRows` and `opt.Width` (set by
   `codec.ParseVideo`, the `-video` flag).
-- Set `opt.Progress = new(codec.Progress)` and call its `Status` from another goroutine to follow a
-  long call.
+- Set `opt.Progress = new(codec.Progress)` (or `DecodeOptions.Progress` when decompressing) and call
+  its `Status` from another goroutine to follow a long call.
 - Errors: test with `errors.Is` against `codec.ErrCorrupt` and `codec.ErrChecksum` (damaged input),
   `codec.ErrTooLarge` (over your size limit) and `codec.ErrMemory` (over `DecodeOptions.MemoryLimit`).
 - Output is deterministic and has no dependencies outside the standard library. Calls are

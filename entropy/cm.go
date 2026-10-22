@@ -55,6 +55,13 @@ func encodeWith(m *model, data []byte, done *atomic.Int64) []byte {
 // Decode reverses Encode, producing exactly n bytes. The stream must be used
 // up exactly: truncated or over-long input is an error.
 func Decode(blob []byte, n, stride int) ([]byte, error) {
+	return DecodeCounting(blob, n, stride, nil)
+}
+
+// DecodeCounting is Decode that also adds to done, as it goes, the number of
+// bytes decoded so far (every 64 KiB, and the rest at the end; nothing more
+// once it finds an error). done may be nil.
+func DecodeCounting(blob []byte, n, stride int, done *atomic.Int64) ([]byte, error) {
 	if n == 0 {
 		if len(blob) != 0 {
 			return nil, fmt.Errorf("%w: data for an empty stream", errStream)
@@ -67,10 +74,10 @@ func Decode(blob []byte, n, stride int) ([]byte, error) {
 	out := make([]byte, n)
 	m := acquireModel(out, n, max(stride, 0))
 	defer m.release()
-	return decodeWith(m, blob, out)
+	return decodeWith(m, blob, out, done)
 }
 
-func decodeWith(m *model, blob, out []byte) ([]byte, error) {
+func decodeWith(m *model, blob, out []byte, done *atomic.Int64) ([]byte, error) {
 	n := len(out)
 	d := newDecoder(blob)
 	for p := 0; p < n; p++ {
@@ -86,6 +93,12 @@ func decodeWith(m *model, blob, out []byte) ([]byte, error) {
 		if d.overrun {
 			return nil, fmt.Errorf("%w: truncated", errStream)
 		}
+		if done != nil && (p+1)%countStep == 0 {
+			done.Add(countStep)
+		}
+	}
+	if done != nil {
+		done.Add(int64(n % countStep))
 	}
 	if d.pos != len(blob) {
 		return nil, fmt.Errorf("%w: %d unused bytes", errStream, len(blob)-d.pos)

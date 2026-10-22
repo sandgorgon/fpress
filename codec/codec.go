@@ -527,7 +527,7 @@ func decodePayloadOpt(mode Mode, payload []byte, n int, d decodeOpts) ([]byte, e
 	case ModeSegmented:
 		return decodeSegmented(payload, n, d)
 	case ModeCM:
-		return decodeCM(payload, n)
+		return decodeCM(payload, n, d.progress.wholeMeter(n))
 	case ModeBig:
 		var out bytes.Buffer
 		out.Grow(n)
@@ -640,7 +640,9 @@ func cmPayload(data []byte, width int, chain prep.Chain, done *atomic.Int64) ([]
 	return append(foldHeader(width, chain), entropy.EncodeCounting(m.Pix(), m.Width(), done)...), nil
 }
 
-func decodeCM(payload []byte, origLen int) ([]byte, error) {
+// decodeCM reverses cmPayload, adding the bytes decoded to done as it goes
+// (done may be nil).
+func decodeCM(payload []byte, origLen int, done *atomic.Int64) ([]byte, error) {
 	if origLen == 0 {
 		return nil, errors.New("empty original cannot use the cm mode")
 	}
@@ -656,13 +658,13 @@ func decodeCM(payload []byte, origLen int) ([]byte, error) {
 		if len(chain) != 0 {
 			return nil, errors.New("plain cm stream with a prep chain")
 		}
-		return entropy.Decode(payload[k+n:], origLen, 0)
+		return entropy.DecodeCounting(payload[k+n:], origLen, 0, done)
 	}
 	w, h, chain, ow, _, rest, err := parseFold(payload, origLen)
 	if err != nil {
 		return nil, err
 	}
-	raw, err := entropy.Decode(rest, w*h, ow)
+	raw, err := entropy.DecodeCounting(rest, w*h, ow, done)
 	if err != nil {
 		return nil, err
 	}

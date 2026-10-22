@@ -6,15 +6,17 @@ import (
 )
 
 // Progress lets another goroutine follow a running Compress, CompressReport or
-// CompressStream: set Options.Progress to a new Progress and call Status while
-// the call runs. A Progress follows one call at a time.
+// CompressStream (set Options.Progress), or DecompressStreamOpt (set
+// DecodeOptions.Progress): give it a new Progress and call Status while the
+// call runs. A Progress follows one call at a time.
 //
 // The estimate comes from the work that takes the longest. Inside one piece of
-// the input (the whole input, or one super-segment of a very large one) that is
-// the context-mixing coder: Status counts the bytes its whole-input attempts
-// have coded, or, when there are none, the segments finished. When neither
-// runs (-no-cm, or the fastest preset on a small input), only whole pieces are
-// counted, and Measured is false.
+// the data (the whole of it, or one super-segment of a very large file) that is
+// the context-mixing coder: Status counts the bytes its whole-piece attempts
+// have coded (when decoding, the one stream being decoded), or, when there are
+// none, the segments finished. When neither applies (-no-cm, the fastest
+// preset on a small input, or a file stored in a DEFLATE or fractal mode),
+// only whole pieces are counted, and Measured is false.
 type Progress struct {
 	mu       sync.Mutex
 	total    int64    // input size
@@ -28,7 +30,7 @@ type Progress struct {
 
 // ProgressStatus is a snapshot of a Progress.
 type ProgressStatus struct {
-	Done, Total int64 // estimated input bytes finished, of the input size
+	Done, Total int64 // estimated bytes of the original finished, of its size
 	Measured    bool  // Done includes progress inside the current piece
 	Checking    bool  // the compressor is decoding its output to check it
 }
@@ -66,7 +68,7 @@ func (p *Progress) Status() ProgressStatus {
 	s.Done = p.base + int64(frac*float64(p.piece))
 	p.best = max(p.best, s.Done)
 	s.Done = p.best
-	s.Measured = s.Measured || s.Done >= s.Total
+	s.Measured = s.Measured || (s.Total > 0 && s.Done >= s.Total)
 	return s
 }
 

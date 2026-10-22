@@ -548,7 +548,7 @@ func TestProgressLine(t *testing.T) {
 		{codec.ProgressStatus{Done: 2_000_000_000, Total: 40_000_000_000}, "compressing: 5%, 2000.0 MB of 40.0 GB, 31 s"},
 		{codec.ProgressStatus{Done: 100, Total: 100, Measured: true, Checking: true}, "checking the result, 31 s"},
 	} {
-		if got := progressLine(c.s, 31*time.Second); got != c.want {
+		if got := progressLine("compressing", c.s, 31*time.Second); got != c.want {
 			t.Errorf("progressLine(%+v) = %q, want %q", c.s, got, c.want)
 		}
 	}
@@ -561,7 +561,7 @@ func TestShowProgressClearsItsLine(t *testing.T) {
 	progressDelay, progressEvery = time.Millisecond, time.Millisecond
 	defer func() { progressDelay, progressEvery = oldDelay, oldEvery }()
 	var buf bytes.Buffer
-	stop := showProgress(&buf, new(codec.Progress), time.Now())
+	stop := showProgress(&buf, "compressing", new(codec.Progress), time.Now())
 	time.Sleep(20 * time.Millisecond)
 	stop()
 	stop() // a second call must be harmless

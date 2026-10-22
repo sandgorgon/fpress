@@ -40,6 +40,9 @@ func sample(p *Progress, stop chan struct{}) <-chan []ProgressStatus {
 func checkProgress(t *testing.T, seen []ProgressStatus, final ProgressStatus, total int64) {
 	t.Helper()
 	for i, s := range seen {
+		if s.Total == 0 && s.Done == 0 && (i == 0 || seen[i-1].Total == 0) {
+			continue // sampled before the call began
+		}
 		if s.Total != total || s.Done < 0 || s.Done > total {
 			t.Fatalf("sample %d: %+v, total %d", i, s, total)
 		}
@@ -140,4 +143,35 @@ func TestConcurrentCalls(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+// Decoding reports progress too: from the context-mixing stream (default
+// preset), finished segments (fast), whole pieces only (fastest) and
+// super-segments (a big container).
+func TestDecodeProgress(t *testing.T) {
+	data := progressInput()
+	big := PresetOptions(PresetFast)
+	big.BigSegment = 64 << 10
+	for name, opt := range map[string]Options{
+		"default": PresetOptions(PresetDefault), "fast": PresetOptions(PresetFast),
+		"fastest": PresetOptions(PresetFastest), "big": big,
+	} {
+		var packed bytes.Buffer
+		if _, err := CompressStream(&packed, bytes.NewReader(data), int64(len(data)), opt); err != nil {
+			t.Fatal(err)
+		}
+		p := new(Progress)
+		stop := make(chan struct{})
+		seen := sample(p, stop)
+		var back bytes.Buffer
+		_, err := DecompressStreamOpt(&back, bytes.NewReader(packed.Bytes()), int64(packed.Len()), DecodeOptions{Progress: p})
+		close(stop)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if !bytes.Equal(back.Bytes(), data) {
+			t.Fatalf("%s: decoded data differs", name)
+		}
+		t.Run(name, func(t *testing.T) { checkProgress(t, <-seen, p.Status(), int64(len(data))) })
+	}
 }

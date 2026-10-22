@@ -94,7 +94,7 @@ common flags:
   -workers N       CPU cores to use (default: all)
   -video WxH[:FMT] the input is raw video frames, such as 1280x720:rgb24
   -v               compress: print the size, the method chosen and the time
-  -q               compress: no progress line (shown only on a terminal)
+  -q               no progress line (it is shown only on a terminal)
 
 examples:
   fpress compress data.bin data.bin.fpr
@@ -286,7 +286,7 @@ shown are those of -preset default.`)
 	stop := func() {}
 	if !*quiet && isTerminal(os.Stderr) {
 		opt.Progress = new(codec.Progress)
-		stop = showProgress(os.Stderr, opt.Progress, start)
+		stop = showProgress(os.Stderr, "compressing", opt.Progress, start)
 	}
 	defer stop()
 	var rep codec.Report
@@ -316,6 +316,7 @@ shown are those of -preset default.`)
 func runDecompress(args []string) error {
 	fs := flag.NewFlagSet("decompress", flag.ExitOnError)
 	memory := fs.String("memory", "", "memory budget `SIZE`, such as 2G or 512M, to decode within: fewer pieces are decoded at once, and a file that cannot fit is refused (default: no limit)")
+	quiet := fs.Bool("q", false, "do not show progress (it is shown only when standard error is a terminal)")
 	setUsage(fs, "[flags] IN OUT", `Restore the original file from IN, a file written by "fpress compress", into
 OUT. "-" reads standard input or writes standard output. OUT is replaced if it
 exists; nothing is written if IN is damaged. Flags go before the file names.`)
@@ -338,6 +339,10 @@ exists; nothing is written if IN is damaged. Flags go before the file names.`)
 		return err
 	}
 	defer cleanup()
+	if !*quiet && isTerminal(os.Stderr) {
+		dopt.Progress = new(codec.Progress)
+		defer showProgress(os.Stderr, "decompressing", dopt.Progress, time.Now())()
+	}
 	return writeOutput(fs.Arg(1), func(w io.Writer) error {
 		_, err := codec.DecompressStreamOpt(w, in, size, dopt)
 		return err
@@ -358,9 +363,10 @@ var (
 	progressEvery = 500 * time.Millisecond
 )
 
-// showProgress draws p on w until the returned function is called; that
-// function clears the line and may be called more than once.
-func showProgress(w io.Writer, p *codec.Progress, start time.Time) func() {
+// showProgress draws p on w, as verb ("compressing"), until the returned
+// function is called; that function clears the line and may be called more
+// than once.
+func showProgress(w io.Writer, verb string, p *codec.Progress, start time.Time) func() {
 	quit, done := make(chan struct{}), make(chan struct{})
 	go func() {
 		defer close(done)
@@ -375,7 +381,7 @@ func showProgress(w io.Writer, p *codec.Progress, start time.Time) func() {
 				}
 				return
 			case <-timer.C:
-				line := progressLine(p.Status(), time.Since(start))
+				line := progressLine(verb, p.Status(), time.Since(start))
 				fmt.Fprintf(w, "\r%-*s", width, line)
 				width = max(width, len(line))
 				timer.Reset(progressEvery)
@@ -388,16 +394,16 @@ func showProgress(w io.Writer, p *codec.Progress, start time.Time) func() {
 
 // progressLine is one line of the progress display, such as
 // "compressing: 37%, 6.1 of 16.8 MB, 31 s".
-func progressLine(s codec.ProgressStatus, elapsed time.Duration) string {
+func progressLine(verb string, s codec.ProgressStatus, elapsed time.Duration) string {
 	secs := fmt.Sprintf("%d s", int(elapsed.Seconds()))
 	switch {
 	case s.Checking && s.Done >= s.Total:
 		return "checking the result, " + secs
 	case s.Measured || s.Done > 0:
 		pct := 100 * float64(s.Done) / float64(max(s.Total, 1))
-		return fmt.Sprintf("compressing: %d%%, %s of %s, %s", int(pct), megabytes(s.Done), megabytes(s.Total), secs)
+		return fmt.Sprintf("%s: %d%%, %s of %s, %s", verb, int(pct), megabytes(s.Done), megabytes(s.Total), secs)
 	}
-	return fmt.Sprintf("compressing %s, %s", megabytes(s.Total), secs)
+	return fmt.Sprintf("%s %s, %s", verb, megabytes(s.Total), secs)
 }
 
 // megabytes formats n bytes as decimal megabytes, or gigabytes from 10 GB.
