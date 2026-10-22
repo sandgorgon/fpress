@@ -23,13 +23,13 @@ then check and unpack it. For example, on Linux:
 
 ```sh
 sha256sum --ignore-missing -c SHA256SUMS      # should print "OK" for your archive
-tar -xzf fpress_0.2.0_linux_amd64.tar.gz
-install -m 755 fpress_0.2.0_linux_amd64/fpress ~/.local/bin/fpress
+tar -xzf fpress_0.3.0_linux_amd64.tar.gz
+install -m 755 fpress_0.3.0_linux_amd64/fpress ~/.local/bin/fpress
 fpress version
 ```
 
 On macOS use `shasum -a 256 --ignore-missing -c SHA256SUMS`. On Windows unzip the `.zip` and run
-`fpress.exe`. With the GitHub CLI, `gh release download v0.2.0 --repo sandgorgon/fpress` fetches
+`fpress.exe`. With the GitHub CLI, `gh release download v0.3.0 --repo sandgorgon/fpress` fetches
 the files. The binary has no dependencies: copy it anywhere and run it.
 
 **From source** (needs Go 1.24 or newer): `./build.sh` writes `./fpress`. See "Building" below.
@@ -398,7 +398,7 @@ MIT; see `LICENSE`.
 
 ## Status
 
-This is version 0.2.0 (`fpress version` prints it). It works and is tested, but it is early:
+This is version 0.3.0 (`fpress version` prints it). It works and is tested, but it is early:
 **files written by one 0.x version may not open in the next.** The container format is at version 6
 and changed once already, when the match model improved. Until 1.0, keep the original or decompress
 with the same version you compressed with. Ideas still open, none of them measured to be a
