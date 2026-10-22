@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"fpress/internal/par"
+	"github.com/sandgorgon/fpress/internal/par"
 )
 
 // DefaultChunk is the usual chunk size for EncodeChunked: big enough that the

@@ -5,9 +5,9 @@ import (
 	"hash/crc32"
 	"testing"
 
-	"fpress/entropy"
-	"fpress/fractal"
-	"fpress/prep"
+	"github.com/sandgorgon/fpress/entropy"
+	"github.com/sandgorgon/fpress/fractal"
+	"github.com/sandgorgon/fpress/prep"
 )
 
 func crc(b []byte) uint32 { return crc32.ChecksumIEEE(b) }
@@ -50,7 +50,7 @@ func segmentedContainer(t testing.TB, data []byte, size int) []byte {
 // cmContainer builds a context-mixing container directly (width 0 = plain stream).
 func cmContainer(t testing.TB, data []byte, width int, chain prep.Chain) []byte {
 	t.Helper()
-	payload, err := cmPayload(data, width, chain)
+	payload, err := cmPayload(data, width, chain, nil)
 	if err != nil {
 		t.Fatalf("cmPayload(width %d, chain %v): %v", width, chain, err)
 	}

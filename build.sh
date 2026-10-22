@@ -15,7 +15,7 @@ out=fpress
 CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "$out" ./cmd/fpress
 
 # Every dependency must be the standard library or one of our own packages.
-extra=$(CGO_ENABLED=0 go list -deps -f '{{if not .Standard}}{{.ImportPath}}{{end}}' ./cmd/fpress | grep -v '^fpress' || true)
+extra=$(CGO_ENABLED=0 go list -deps -f '{{if not .Standard}}{{.ImportPath}}{{end}}' ./cmd/fpress | grep -v '^github.com/sandgorgon/fpress' || true)
 if [ -n "$extra" ]; then
 	echo "build.sh: third-party packages found:" >&2
 	echo "$extra" >&2

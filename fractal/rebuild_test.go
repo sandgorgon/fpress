@@ -5,8 +5,8 @@ import (
 	"math/rand"
 	"testing"
 
-	"fpress/matrix"
-	"fpress/transform"
+	"github.com/sandgorgon/fpress/matrix"
+	"github.com/sandgorgon/fpress/transform"
 )
 
 // applyComposed is the definition of a recipe in terms of the matrix

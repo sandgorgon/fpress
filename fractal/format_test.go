@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"fpress/matrix"
+	"github.com/sandgorgon/fpress/matrix"
 )
 
 func sampleCompressed(t testing.TB) *Compressed {

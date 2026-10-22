@@ -9,7 +9,7 @@ package fractal
 import (
 	"fmt"
 
-	"fpress/transform"
+	"github.com/sandgorgon/fpress/transform"
 )
 
 // Transform is one recipe for a Size x Size range block of the padded grid.

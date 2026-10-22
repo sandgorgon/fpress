@@ -8,7 +8,7 @@ import (
 	"os"
 	"testing"
 
-	"fpress/prep"
+	"github.com/sandgorgon/fpress/prep"
 )
 
 func randomBytes(n int, seed int64) []byte {

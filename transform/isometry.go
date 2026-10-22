@@ -6,7 +6,7 @@ package transform
 import (
 	"fmt"
 
-	"fpress/matrix"
+	"github.com/sandgorgon/fpress/matrix"
 )
 
 // Isometry is one of the 8 symmetries of a square (the dihedral group D4).

@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 
-	"fpress/entropy"
-	"fpress/transform"
+	"github.com/sandgorgon/fpress/entropy"
+	"github.com/sandgorgon/fpress/transform"
 )
 
 // Transform records are stored column by column rather than record by record,

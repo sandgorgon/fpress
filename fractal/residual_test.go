@@ -5,7 +5,7 @@ import (
 	"math/rand"
 	"testing"
 
-	"fpress/matrix"
+	"github.com/sandgorgon/fpress/matrix"
 )
 
 // sparseStructured is a residual that is mostly zero with a regular lattice of

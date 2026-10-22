@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"fpress/prep"
+	"github.com/sandgorgon/fpress/prep"
 )
 
 func TestParsePreset(t *testing.T) {

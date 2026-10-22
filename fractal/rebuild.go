@@ -3,9 +3,9 @@ package fractal
 import (
 	"fmt"
 
-	"fpress/internal/par"
-	"fpress/matrix"
-	"fpress/transform"
+	"github.com/sandgorgon/fpress/internal/par"
+	"github.com/sandgorgon/fpress/matrix"
+	"github.com/sandgorgon/fpress/transform"
 )
 
 // reconstruct runs the transforms for c.Iterations rounds and returns the

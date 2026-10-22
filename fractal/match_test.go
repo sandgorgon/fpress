@@ -5,8 +5,8 @@ import (
 	"math/rand"
 	"testing"
 
-	"fpress/matrix"
-	"fpress/transform"
+	"github.com/sandgorgon/fpress/matrix"
+	"github.com/sandgorgon/fpress/transform"
 )
 
 // bruteExists reports whether some domain block of the given scale (2: the

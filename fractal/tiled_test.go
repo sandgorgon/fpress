@@ -5,7 +5,7 @@ import (
 	"math/rand"
 	"testing"
 
-	"fpress/matrix"
+	"github.com/sandgorgon/fpress/matrix"
 )
 
 func tiledOpts(tile, workers int) Options {

@@ -3,7 +3,7 @@ package fractal
 import (
 	"testing"
 
-	"fpress/matrix"
+	"github.com/sandgorgon/fpress/matrix"
 )
 
 func matrixEqualDense(a *matrix.Dense, b matrix.Matrix) bool { return matrix.Equal(a, b) }

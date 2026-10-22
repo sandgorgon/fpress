@@ -4,7 +4,7 @@
 // Container layout:
 //
 //	"FPRS"   4 bytes magic
-//	version  1 byte (currently 1)
+//	version  1 byte, FormatVersion
 //	mode     1 byte: 0 stored, 1 flate, 2 fractal, 3 prep+flate, 4 segmented, 5 context-mixing, 6 big
 //	origLen  uvarint, length of the original data
 //	crc32    4 bytes little-endian, IEEE CRC of the original data
@@ -29,11 +29,12 @@
 // above as context.
 //
 // Mode 4 cuts the data into segments and encodes each in whichever of modes
-// 0-3 suits it best (see segment.go).
+// 0-3 and 5 suits it best (see segment.go). Mode 6 is written by
+// CompressStream for inputs larger than one super-segment (see stream.go).
 //
 // Compress tries every applicable mode and keeps the smallest, so the output
-// is never much larger than the input: the worst case is the data plus an
-// 11-12 byte header.
+// is never much larger than the input: the worst case is the data plus the
+// header, 10 bytes and the length's uvarint (13 bytes for a 1 MiB input).
 package codec
 
 import (
@@ -44,12 +45,13 @@ import (
 	"fmt"
 	"hash/crc32"
 	"io"
+	"sync/atomic"
 
-	"fpress/entropy"
-	"fpress/fractal"
-	"fpress/internal/par"
-	"fpress/matrix"
-	"fpress/prep"
+	"github.com/sandgorgon/fpress/entropy"
+	"github.com/sandgorgon/fpress/fractal"
+	"github.com/sandgorgon/fpress/internal/par"
+	"github.com/sandgorgon/fpress/matrix"
+	"github.com/sandgorgon/fpress/prep"
 )
 
 // Mode says how a container's payload is encoded.
@@ -192,6 +194,11 @@ type Options struct {
 	// NoQuickReject turns off the early exit for data that looks
 	// incompressible (see hopeless).
 	NoQuickReject bool
+
+	// Progress, if not nil, is kept up to date during the call so another
+	// goroutine can show how far it has got (see Progress). It does not change
+	// the output.
+	Progress *Progress
 }
 
 // DefaultOptions returns the default settings.
@@ -243,11 +250,15 @@ func Compress(data []byte, opt Options) ([]byte, error) {
 func CompressReport(data []byte, opt Options) ([]byte, Report, error) {
 	rep := Report{OrigLen: len(data), Stored: -1, Flate: -1, PrepFlate: -1, Fractal: -1, CM: -1, Segmented: -1}
 	sum := crc32.ChecksumIEEE(data)
+	opt.Progress.start(int64(len(data)))
+	opt.Progress.beginPiece(int64(len(data)))
 	mode, payload, err := compressPayload(data, opt, &rep)
 	if err != nil {
 		return nil, rep, err
 	}
 	best := container(mode, len(data), sum, payload)
+	opt.Progress.setChecking()
+	defer opt.Progress.endPiece()
 
 	// Final safety net: the container must decode to exactly the input.
 	back, err := DecompressLimit(best, max(len(data), 1))
@@ -616,15 +627,17 @@ func decodeFractal(payload []byte, origLen int, d decodeOpts) ([]byte, error) {
 
 // cmPayload codes data folded at width and prepared by chain. width 0 means a
 // plain byte stream.
-func cmPayload(data []byte, width int, chain prep.Chain) ([]byte, error) {
+// cmPayload codes data with the context-mixing coder, adding the bytes coded
+// to done as it goes (done may be nil).
+func cmPayload(data []byte, width int, chain prep.Chain, done *atomic.Int64) ([]byte, error) {
 	if width == 0 {
-		return append(foldHeader(0, nil), entropy.Encode(data, 0)...), nil
+		return append(foldHeader(0, nil), entropy.EncodeCounting(data, 0, done)...), nil
 	}
 	m, err := prepare(data, width, chain)
 	if err != nil {
 		return nil, err
 	}
-	return append(foldHeader(width, chain), entropy.Encode(m.Pix(), m.Width())...), nil
+	return append(foldHeader(width, chain), entropy.EncodeCounting(m.Pix(), m.Width(), done)...), nil
 }
 
 func decodeCM(payload []byte, origLen int) ([]byte, error) {

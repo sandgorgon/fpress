@@ -7,7 +7,7 @@ import (
 	"math/rand"
 	"testing"
 
-	"fpress/prep"
+	"github.com/sandgorgon/fpress/prep"
 )
 
 // mixedData joins regions that each want a different treatment.

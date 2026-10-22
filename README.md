@@ -56,6 +56,7 @@ before the file names. `.fpr` is only a convention; fpress does not look at file
 | `-workers N` | how many CPU cores to use (default: all) |
 | `-video 1280x720:rgb24` | the file is raw video; see "Raw video" below |
 | `-v` | print the sizes, the method chosen and the time |
+| `-q` | no progress line (progress is shown only on a terminal) |
 | `decompress -memory 2G` | on decompress: stay within this budget, or refuse with a clear error |
 
 `fpress help` shows a summary with examples. `fpress compress -h` lists every flag, including the
@@ -227,8 +228,13 @@ Poor fit:
 - **Standard input is copied to a temporary file first**, because the compressor reads its input
   more than once. That needs as much free space in the temporary directory (`$TMPDIR`, usually
   `/tmp`) as the input is large. Reading from a named file avoids it.
-- **There is no progress display.** The default preset takes seconds per megabyte, and a 1 GiB file
-  takes minutes with no output until it finishes. `-v` prints a summary at the end.
+- **Progress.** After the first second, `compress` shows a line such as
+  `compressing: 37%, 6.1 MB of 16.8 MB, 31 s`, then `checking the result` while it decodes its own
+  output. It appears only when standard error is a terminal, so scripts and logs see nothing; `-q`
+  turns it off. The percentage counts the slowest work, the context-mixing coder, so it can pause
+  while other parts finish, and it moves in steps on the `fast` preset (a batch of slices at a
+  time) and on very large files (a piece at a time). With `-no-cm` on an ordinary-sized file it shows
+  only the time. `decompress` shows no progress yet. `-v` prints a summary at the end.
 - **Memory.** Compression plans around `-memory` (default 8G); it is an estimate, not a hard cap.
   Decompression has no limit unless you give `decompress -memory`, in which case it decodes fewer
   pieces at once and refuses, before writing anything, a file that cannot fit.
@@ -292,6 +298,42 @@ quick reject saw incompressible data and stopped early. The `detail` column says
 To check that a compressed file is intact without keeping the result, decompress it to `/dev/null`:
 exit status 0 means every byte came back and the checksum matched.
 
+## Using fpress from Go
+
+The `codec` package is the library behind the command, and you can use it in your own programs:
+
+```sh
+go get github.com/sandgorgon/fpress@latest
+```
+
+```go
+import "github.com/sandgorgon/fpress/codec"
+
+packed, err := codec.Compress(data, codec.PresetOptions(codec.PresetFast))
+back, err := codec.Decompress(packed)
+```
+
+- `Compress` and `Decompress` work on byte slices in memory. `Decompress` accepts originals up to
+  1 GiB; use `DecompressLimit` to choose the limit, and always set one for files from untrusted sources.
+- `CompressStream` and `DecompressStreamOpt` work on an `io.ReaderAt` (such as an `*os.File`) and an
+  `io.Writer`, for files of any size. This is what the command uses. `DecompressStreamOpt` writes as
+  it decodes, so on an error discard what it wrote.
+- `PresetOptions` gives the settings of each preset. Adjust fields afterwards, for example
+  `opt.Fractal.MemoryLimit` (the `-memory` flag) or `opt.FrameRows` and `opt.Width` (set by
+  `codec.ParseVideo`, the `-video` flag).
+- Set `opt.Progress = new(codec.Progress)` and call its `Status` from another goroutine to follow a
+  long call.
+- Errors: test with `errors.Is` against `codec.ErrCorrupt` and `codec.ErrChecksum` (damaged input),
+  `codec.ErrTooLarge` (over your size limit) and `codec.ErrMemory` (over `DecodeOptions.MemoryLimit`).
+- Output is deterministic and has no dependencies outside the standard library. Calls are
+  independent of each other, so separate goroutines can compress at the same time (each call
+  already uses all cores unless `opt.Fractal.Workers` says otherwise).
+
+Runnable examples are in `codec/example_test.go` (`go doc github.com/sandgorgon/fpress/codec` lists
+the whole API). Only `codec` is meant for outside use; the other packages are its internals and may
+change in any release. Like the file format, the `codec` API may change before 1.0, and the
+changelog will say when it does.
+
 ## Building
 
 ```sh
@@ -341,7 +383,7 @@ has also been run under Go's race detector.
 | `prep` | reversible reshaping steps and row-width detection |
 | `fractal` | block matching, planning, the copy recipes and their decoder |
 | `entropy` | the context-mixing coder (integer arithmetic only) |
-| `codec` | the container format, method selection, slicing, very-large-file streaming |
+| `codec` | the container format, method selection, slicing, very-large-file streaming; the library to use from Go |
 | `cmd/fpress` | the command-line tool |
 | `bench` | the benchmark runner and the generated corpus |
 

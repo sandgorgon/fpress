@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"math"
 
-	"fpress/entropy"
-	"fpress/internal/par"
-	"fpress/matrix"
-	"fpress/transform"
+	"github.com/sandgorgon/fpress/entropy"
+	"github.com/sandgorgon/fpress/internal/par"
+	"github.com/sandgorgon/fpress/matrix"
+	"github.com/sandgorgon/fpress/transform"
 )
 
 // Options tunes the encoder. None of them affect correctness: reconstruction

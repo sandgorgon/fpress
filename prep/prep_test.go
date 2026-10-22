@@ -5,7 +5,7 @@ import (
 	"math/rand"
 	"testing"
 
-	"fpress/matrix"
+	"github.com/sandgorgon/fpress/matrix"
 )
 
 func randomMatrix(w, h int, seed int64) *matrix.Dense {

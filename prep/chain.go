@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"strings"
 
-	"fpress/matrix"
+	"github.com/sandgorgon/fpress/matrix"
 )
 
 // Kind identifies a step type. The numeric values are part of the stream

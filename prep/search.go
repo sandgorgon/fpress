@@ -5,7 +5,7 @@ import (
 	"compress/flate"
 	"sort"
 
-	"fpress/matrix"
+	"github.com/sandgorgon/fpress/matrix"
 )
 
 // DefaultWidth returns the fold width used when nothing better is known: the

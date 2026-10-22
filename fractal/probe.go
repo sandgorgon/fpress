@@ -1,8 +1,8 @@
 package fractal
 
 import (
-	"fpress/internal/par"
-	"fpress/matrix"
+	"github.com/sandgorgon/fpress/internal/par"
+	"github.com/sandgorgon/fpress/matrix"
 )
 
 // Probe answers one question cheaply: does this matrix contain the kind of

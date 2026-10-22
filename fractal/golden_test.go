@@ -5,7 +5,7 @@ import (
 	"math/rand"
 	"testing"
 
-	"fpress/matrix"
+	"github.com/sandgorgon/fpress/matrix"
 )
 
 // goldenCases are inputs whose encoded bytes are fingerprinted. A change to

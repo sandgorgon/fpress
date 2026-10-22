@@ -1,6 +1,6 @@
 package prep
 
-import "fpress/matrix"
+import "github.com/sandgorgon/fpress/matrix"
 
 // forward applies the step to src, returning a new matrix.
 func (s Step) forward(src *matrix.Dense) *matrix.Dense {

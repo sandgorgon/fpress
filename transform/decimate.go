@@ -3,7 +3,7 @@ package transform
 import (
 	"fmt"
 
-	"fpress/matrix"
+	"github.com/sandgorgon/fpress/matrix"
 )
 
 // Decimate2x shrinks src to half size by keeping the top-left byte of every

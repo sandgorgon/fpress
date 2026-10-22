@@ -62,6 +62,7 @@ func CompressStream(w io.Writer, r io.ReaderAt, size int64, opt Options) (Report
 	if size < 0 {
 		return rep, errors.New("fpress: negative size")
 	}
+	opt.Progress.start(size)
 	sum, err := checksumAt(r, size)
 	if err != nil {
 		return rep, err
@@ -96,10 +97,12 @@ func CompressStream(w io.Writer, r io.ReaderAt, size int64, opt Options) (Report
 			return rep, err
 		}
 		var segRep Report
+		opt.Progress.beginPiece(int64(n))
 		mode, payload, err := compressPayload(data, opt, &segRep)
 		if err != nil {
 			return rep, fmt.Errorf("super-segment at %d: %w", off, err)
 		}
+		opt.Progress.setChecking()
 		// Each piece is verified before it is written.
 		back, err := decodePayload(mode, payload, n)
 		if err != nil {
@@ -117,6 +120,7 @@ func CompressStream(w io.Writer, r io.ReaderAt, size int64, opt Options) (Report
 		}
 		out += int64(len(piece) + len(payload))
 		rep.BigSegments++
+		opt.Progress.endPiece()
 	}
 	rep.OutBytes = out
 	return rep, bw.Flush()

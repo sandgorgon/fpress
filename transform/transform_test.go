@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"fpress/matrix"
+	"github.com/sandgorgon/fpress/matrix"
 )
 
 // distinct returns an n x n matrix whose cells are all different, so any two

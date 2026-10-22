@@ -75,6 +75,8 @@ func encodeSegmented(data []byte, size int, opt Options) ([]byte, segInfo, error
 	}
 	sub := opt
 	sub.Fractal.Workers = 1
+	sub.Progress = nil // segments are counted here, not inside
+	done := opt.Progress.segMeter(len(data))
 	jobs := make(chan int)
 	var wg sync.WaitGroup
 	for k := 0; k < min(workers, n); k++ {
@@ -85,6 +87,9 @@ func encodeSegmented(data []byte, size int, opt Options) ([]byte, segInfo, error
 				seg := data[i*size : min(len(data), (i+1)*size)]
 				mode, payload, _, err := encodeBlock(seg, sub)
 				results[i] = result{mode, payload, err}
+				if done != nil {
+					done.Add(int64(len(seg)))
+				}
 			}
 		}()
 	}

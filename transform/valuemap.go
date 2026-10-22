@@ -3,7 +3,7 @@ package transform
 import (
 	"fmt"
 
-	"fpress/matrix"
+	"github.com/sandgorgon/fpress/matrix"
 )
 
 // MapKind selects how byte values are changed.

@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"io"
 
-	"fpress/entropy"
-	"fpress/matrix"
+	"github.com/sandgorgon/fpress/entropy"
+	"github.com/sandgorgon/fpress/matrix"
 )
 
 // Decode reconstructs the original matrix exactly.

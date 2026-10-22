@@ -5,9 +5,9 @@ import (
 	"compress/flate"
 	"math"
 
-	"fpress/fractal"
-	"fpress/internal/par"
-	"fpress/prep"
+	"github.com/sandgorgon/fpress/fractal"
+	"github.com/sandgorgon/fpress/internal/par"
+	"github.com/sandgorgon/fpress/prep"
 )
 
 // blockInfo records what encodeBlock tried. Sizes are payload bytes (no
@@ -109,7 +109,8 @@ func encodeBlock(data []byte, opt Options) (Mode, []byte, blockInfo, error) {
 		cmAtt = cmAttempts(cands, len(data), opt.CMAttempts, opt.FrameRows > 0)
 		cmRes = make([]result, len(cmAtt))
 		for i, c := range cmAtt {
-			tasks = append(tasks, func() { cmRes[i].payload, cmRes[i].err = cmPayload(data, c.Width, c.Chain) })
+			done := opt.Progress.wholeMeter(len(data))
+			tasks = append(tasks, func() { cmRes[i].payload, cmRes[i].err = cmPayload(data, c.Width, c.Chain, done) })
 		}
 	}
 	par.Do(workers, tasks...)

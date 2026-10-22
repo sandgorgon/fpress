@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	"fpress/transform"
+	"github.com/sandgorgon/fpress/transform"
 )
 
 // randomTransforms makes a valid list for a pw x ph grid: a mix of raw

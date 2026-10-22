@@ -7,8 +7,8 @@ import (
 	"runtime"
 	"sync"
 
-	"fpress/internal/par"
-	"fpress/matrix"
+	"github.com/sandgorgon/fpress/internal/par"
+	"github.com/sandgorgon/fpress/matrix"
 )
 
 // A Tiled matrix is cut into square tiles (edge tiles may be smaller). Each

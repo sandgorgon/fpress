@@ -1,6 +1,9 @@
 package entropy
 
-import "fmt"
+import (
+	"fmt"
+	"sync/atomic"
+)
 
 // Encode compresses data. stride is the row length when the bytes form a
 // matrix (0 for a plain byte stream); it adds contexts built from the bytes
@@ -10,20 +13,41 @@ func Encode(data []byte, stride int) []byte {
 	if len(data) == 0 {
 		return nil
 	}
-	m := acquireModel(data, len(data), max(stride, 0))
-	defer m.release()
-	return encodeWith(m, data)
+	return EncodeCounting(data, stride, nil)
 }
 
-func encodeWith(m *model, data []byte) []byte {
+// countStep is how many bytes EncodeCounting codes between updates of its
+// counter.
+const countStep = 1 << 16
+
+// EncodeCounting is Encode that also adds to done, as it goes, the number of
+// bytes coded so far (every 64 KiB, and the rest at the end), so another
+// goroutine can follow a long encode. done may be nil. The output is the same
+// as Encode's.
+func EncodeCounting(data []byte, stride int, done *atomic.Int64) []byte {
+	if len(data) == 0 {
+		return nil
+	}
+	m := acquireModel(data, len(data), max(stride, 0))
+	defer m.release()
+	return encodeWith(m, data, done)
+}
+
+func encodeWith(m *model, data []byte, done *atomic.Int64) []byte {
 	e := newEncoder()
 	e.out = make([]byte, 0, len(data)/2+16)
-	for _, b := range data {
+	for k, b := range data {
 		for i := 7; i >= 0; i-- {
 			bit := int(b>>uint(i)) & 1
 			e.encode(bit, m.predict())
 			m.update(bit)
 		}
+		if done != nil && (k+1)%countStep == 0 {
+			done.Add(countStep)
+		}
+	}
+	if done != nil {
+		done.Add(int64(len(data) % countStep))
 	}
 	return e.finish()
 }

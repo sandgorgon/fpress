@@ -6,8 +6,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"fpress/internal/par"
-	"fpress/transform"
+	"github.com/sandgorgon/fpress/internal/par"
+	"github.com/sandgorgon/fpress/transform"
 )
 
 // Exact-match search without a big index.

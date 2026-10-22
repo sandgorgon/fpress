@@ -20,10 +20,11 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"text/tabwriter"
 	"time"
 
-	"fpress/codec"
+	"github.com/sandgorgon/fpress/codec"
 )
 
 func main() {
@@ -93,6 +94,7 @@ common flags:
   -workers N       CPU cores to use (default: all)
   -video WxH[:FMT] the input is raw video frames, such as 1280x720:rgb24
   -v               compress: print the size, the method chosen and the time
+  -q               compress: no progress line (shown only on a terminal)
 
 examples:
   fpress compress data.bin data.bin.fpr
@@ -108,7 +110,7 @@ Exit status: 0 done, 1 failed, 2 mistake on the command line.
 // Flags shown first in a command's help; every other flag is listed under
 // "tuning flags", in this order.
 var (
-	commonFlags = []string{"preset", "memory", "workers", "video", "v", "head", "ext"}
+	commonFlags = []string{"preset", "memory", "workers", "video", "v", "q", "head", "ext"}
 	tuningFlags = []string{
 		"no-fractal", "no-cm", "no-prep", "no-copy", "no-gate", "no-reject",
 		"width", "segment", "big-segment", "max-cm", "max-fractal", "cm-attempts",
@@ -261,6 +263,7 @@ func runCompress(args []string) error {
 	fs := flag.NewFlagSet("compress", flag.ExitOnError)
 	get := codecFlags(fs)
 	verbose := fs.Bool("v", false, "print the sizes, the method chosen and the time to standard error")
+	quiet := fs.Bool("q", false, "do not show progress (it is shown only when standard error is a terminal)")
 	setUsage(fs, "[flags] IN OUT", `Compress IN into OUT. "-" reads standard input or writes standard output.
 OUT is replaced if it exists. Flags go before the file names. The defaults
 shown are those of -preset default.`)
@@ -280,6 +283,12 @@ shown are those of -preset default.`)
 	}
 	defer cleanup()
 	start := time.Now()
+	stop := func() {}
+	if !*quiet && isTerminal(os.Stderr) {
+		opt.Progress = new(codec.Progress)
+		stop = showProgress(os.Stderr, opt.Progress, start)
+	}
+	defer stop()
 	var rep codec.Report
 	err = writeOutput(fs.Arg(1), func(w io.Writer) error {
 		var err error
@@ -289,6 +298,7 @@ shown are those of -preset default.`)
 	if err != nil {
 		return err
 	}
+	stop() // clear the progress line before the summary
 	if *verbose {
 		out := int64(rep.Out)
 		if rep.OutBytes > 0 {
@@ -332,6 +342,70 @@ exists; nothing is written if IN is damaged. Flags go before the file names.`)
 		_, err := codec.DecompressStreamOpt(w, in, size, dopt)
 		return err
 	})
+}
+
+// isTerminal reports whether f is a terminal (or another character device),
+// where a progress line that rewrites itself makes sense.
+func isTerminal(f *os.File) bool {
+	st, err := f.Stat()
+	return err == nil && st.Mode()&os.ModeCharDevice != 0
+}
+
+// Progress display: nothing for the first progressDelay (quick runs stay
+// quiet), then one line, rewritten every progressEvery.
+var (
+	progressDelay = time.Second
+	progressEvery = 500 * time.Millisecond
+)
+
+// showProgress draws p on w until the returned function is called; that
+// function clears the line and may be called more than once.
+func showProgress(w io.Writer, p *codec.Progress, start time.Time) func() {
+	quit, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		width := 0
+		timer := time.NewTimer(progressDelay)
+		defer timer.Stop()
+		for {
+			select {
+			case <-quit:
+				if width > 0 {
+					fmt.Fprintf(w, "\r%*s\r", width, "")
+				}
+				return
+			case <-timer.C:
+				line := progressLine(p.Status(), time.Since(start))
+				fmt.Fprintf(w, "\r%-*s", width, line)
+				width = max(width, len(line))
+				timer.Reset(progressEvery)
+			}
+		}
+	}()
+	var once sync.Once
+	return func() { once.Do(func() { close(quit); <-done }) }
+}
+
+// progressLine is one line of the progress display, such as
+// "compressing: 37%, 6.1 of 16.8 MB, 31 s".
+func progressLine(s codec.ProgressStatus, elapsed time.Duration) string {
+	secs := fmt.Sprintf("%d s", int(elapsed.Seconds()))
+	switch {
+	case s.Checking && s.Done >= s.Total:
+		return "checking the result, " + secs
+	case s.Measured || s.Done > 0:
+		pct := 100 * float64(s.Done) / float64(max(s.Total, 1))
+		return fmt.Sprintf("compressing: %d%%, %s of %s, %s", int(pct), megabytes(s.Done), megabytes(s.Total), secs)
+	}
+	return fmt.Sprintf("compressing %s, %s", megabytes(s.Total), secs)
+}
+
+// megabytes formats n bytes as decimal megabytes, or gigabytes from 10 GB.
+func megabytes(n int64) string {
+	if n >= 10e9 {
+		return fmt.Sprintf("%.1f GB", float64(n)/1e9)
+	}
+	return fmt.Sprintf("%.1f MB", float64(n)/1e6)
 }
 
 // checkDistinct refuses an output that is the input itself (by any name, such

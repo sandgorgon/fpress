@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"fpress/matrix"
+	"github.com/sandgorgon/fpress/matrix"
 )
 
 func probeOf(t *testing.T, m matrix.Matrix) ProbeResult {

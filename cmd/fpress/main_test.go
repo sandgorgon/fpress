@@ -13,8 +13,9 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
-	"fpress/codec"
+	"github.com/sandgorgon/fpress/codec"
 )
 
 func gradientFile(t *testing.T, dir string) (string, []byte) {
@@ -345,7 +346,7 @@ func TestBuildsWithStandardLibraryOnly(t *testing.T) {
 		if len(f) != 2 {
 			continue
 		}
-		if f[1] != "true" && !strings.HasPrefix(f[0], "fpress") {
+		if f[1] != "true" && f[0] != "github.com/sandgorgon/fpress" && !strings.HasPrefix(f[0], "github.com/sandgorgon/fpress/") {
 			t.Errorf("dependency outside the standard library: %s", f[0])
 		}
 		if f[0] == "C" || f[0] == "runtime/cgo" {
@@ -535,4 +536,41 @@ func captureStdout(t *testing.T, f func()) string {
 	os.Stdout = old
 	w.Close()
 	return string(<-done)
+}
+
+func TestProgressLine(t *testing.T) {
+	for _, c := range []struct {
+		s    codec.ProgressStatus
+		want string
+	}{
+		{codec.ProgressStatus{Done: 6_100_000, Total: 16_800_000, Measured: true}, "compressing: 36%, 6.1 MB of 16.8 MB, 31 s"},
+		{codec.ProgressStatus{Total: 16_800_000}, "compressing 16.8 MB, 31 s"},
+		{codec.ProgressStatus{Done: 2_000_000_000, Total: 40_000_000_000}, "compressing: 5%, 2000.0 MB of 40.0 GB, 31 s"},
+		{codec.ProgressStatus{Done: 100, Total: 100, Measured: true, Checking: true}, "checking the result, 31 s"},
+	} {
+		if got := progressLine(c.s, 31*time.Second); got != c.want {
+			t.Errorf("progressLine(%+v) = %q, want %q", c.s, got, c.want)
+		}
+	}
+}
+
+// The progress line is drawn after the delay and erased when stopped, so the
+// next thing printed starts on a clean line.
+func TestShowProgressClearsItsLine(t *testing.T) {
+	oldDelay, oldEvery := progressDelay, progressEvery
+	progressDelay, progressEvery = time.Millisecond, time.Millisecond
+	defer func() { progressDelay, progressEvery = oldDelay, oldEvery }()
+	var buf bytes.Buffer
+	stop := showProgress(&buf, new(codec.Progress), time.Now())
+	time.Sleep(20 * time.Millisecond)
+	stop()
+	stop() // a second call must be harmless
+	out := buf.String()
+	if !strings.Contains(out, "compressing") {
+		t.Fatalf("nothing drawn: %q", out)
+	}
+	last := out[strings.LastIndex(out, "\r"):]
+	if last != "\r" || !strings.HasSuffix(strings.TrimRight(out, "\r"), " ") {
+		t.Fatalf("line not erased at the end: %q", out[max(0, len(out)-60):])
+	}
 }

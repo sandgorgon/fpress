@@ -4,8 +4,8 @@ import (
 	"math/rand"
 	"testing"
 
-	"fpress/matrix"
-	"fpress/transform"
+	"github.com/sandgorgon/fpress/matrix"
+	"github.com/sandgorgon/fpress/transform"
 )
 
 // tileMap is a grid of tiles drawn from a small palette of random tiles: the

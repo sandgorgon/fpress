@@ -48,7 +48,7 @@ func TestPooledModelsMatchFreshOnes(t *testing.T) {
 	ins := poolInputs()
 	fresh := make([][]byte, len(ins))
 	for i, in := range ins {
-		fresh[i] = encodeWith(newModel(in.data, len(in.data), in.stride), in.data)
+		fresh[i] = encodeWith(newModel(in.data, len(in.data), in.stride), in.data, nil)
 	}
 	// Several rounds in shuffled order, so a pooled model has always been used
 	// for something different before.

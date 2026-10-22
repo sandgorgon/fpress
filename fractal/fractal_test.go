@@ -7,7 +7,7 @@ import (
 	"os"
 	"testing"
 
-	"fpress/matrix"
+	"github.com/sandgorgon/fpress/matrix"
 )
 
 // ---- test inputs -----------------------------------------------------------
