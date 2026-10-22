@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Compressing or decompressing a file onto itself (or onto a link to it) is refused; before, the
+  original was replaced by the result.
+- Output to a device or pipe such as `/dev/null` works (it failed with "permission denied").
+- `fpress help` prints to standard output and exits 0. `compress -h`, `decompress -h` and
+  `bench -h` show a usage line, the common flags first, plain descriptions and every default.
+- Command-line mistakes exit with status 2 (they exited with 1), and a flag given after the file
+  names gets its own message.
+- README: install from a release, things to know, reading `bench` output, troubleshooting.
+
 ## 0.1.0 (first release)
 
 Container format version 6. Files written by earlier development builds do not open; from here on,

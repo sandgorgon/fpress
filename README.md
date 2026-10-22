@@ -15,19 +15,39 @@ gets out of the way, and the result is competitive with `xz` and `zstd -19`, usu
 It is built as a real tool, not a demo: it checks its own work before it writes anything, handles
 files of any size, and rejects damaged input instead of returning garbage.
 
+## Install
+
+**From a release** (Linux and macOS on amd64 and arm64, Windows on amd64). Download the archive for
+your system and `SHA256SUMS` from the [releases page](https://github.com/sandgorgon/fpress/releases),
+then check and unpack it. For example, on Linux:
+
+```sh
+sha256sum --ignore-missing -c SHA256SUMS      # should print "OK" for your archive
+tar -xzf fpress_0.1.0_linux_amd64.tar.gz
+install -m 755 fpress_0.1.0_linux_amd64/fpress ~/.local/bin/fpress
+fpress version
+```
+
+On macOS use `shasum -a 256 --ignore-missing -c SHA256SUMS`. On Windows unzip the `.zip` and run
+`fpress.exe`. With the GitHub CLI, `gh release download v0.1.0 --repo sandgorgon/fpress` fetches
+the files. The binary has no dependencies: copy it anywhere and run it.
+
+**From source** (needs Go 1.24 or newer): `./build.sh` writes `./fpress`. See "Building" below.
+
 ## Quick start
 
 ```sh
-./build.sh                                   # writes ./fpress (needs Go 1.24 or newer)
+fpress compress   data.bin data.bin.fpr      # make it smaller
+fpress decompress data.bin.fpr data.bin      # get the identical file back
 
-./fpress compress   photo.raw photo.fpr      # make it smaller
-./fpress decompress photo.fpr photo.raw      # get the identical file back
-
-./fpress compress -preset fast big.log big.fpr   # much quicker, slightly larger
-./fpress bench some-file                         # try every method and show the sizes
+fpress compress -preset fast big.log big.log.fpr   # much quicker, slightly larger
+fpress compress -v data.bin data.bin.fpr           # also print what it chose and how long it took
+fpress bench some-file                             # try every method and show the sizes
+fpress decompress data.bin.fpr /dev/null           # check that a file is intact, write nothing
 ```
 
-Use `-` for standard input or output (`cat data | fpress compress - data.fpr`).
+Use `-` for standard input or output (`tar cf - dir | fpress compress - dir.tar.fpr`). Flags go
+before the file names. `.fpr` is only a convention; fpress does not look at file names.
 
 | flag | what it does |
 |---|---|
@@ -35,9 +55,11 @@ Use `-` for standard input or output (`cat data | fpress compress - data.fpr`).
 | `-memory 4G` | memory budget the compressor plans around (default 8G) |
 | `-workers N` | how many CPU cores to use (default: all) |
 | `-video 1280x720:rgb24` | the file is raw video; see "Raw video" below |
+| `-v` | print the sizes, the method chosen and the time |
 | `decompress -memory 2G` | on decompress: stay within this budget, or refuse with a clear error |
 
-`fpress compress -h` lists the tuning flags for people who want to experiment.
+`fpress help` shows a summary with examples. `fpress compress -h` lists every flag, including the
+tuning flags for people who want to experiment.
 
 ## What it does, in plain terms
 
@@ -194,6 +216,81 @@ Poor fit:
 - noisy near-repeats: if every copy differs by a few corrupted bytes, the fractal stage finds
   nothing and the context-mixing coder does the work (see `tilemap8-noisy`; the measurements are in `PLAN.md`);
 - data that is already compressed or encrypted.
+
+## Things to know
+
+- **The output is replaced if it exists**, without asking, like `cp`. It is written under a temporary
+  name next to it and renamed into place only when everything succeeded, so a failed or interrupted
+  run never leaves a half-written file and never touches an existing one. Giving the same file (or
+  a link to it) as input and output is refused.
+- **Devices and pipes** such as `/dev/null` are written to directly.
+- **Standard input is copied to a temporary file first**, because the compressor reads its input
+  more than once. That needs as much free space in the temporary directory (`$TMPDIR`, usually
+  `/tmp`) as the input is large. Reading from a named file avoids it.
+- **There is no progress display.** The default preset takes seconds per megabyte, and a 1 GiB file
+  takes minutes with no output until it finishes. `-v` prints a summary at the end.
+- **Memory.** Compression plans around `-memory` (default 8G); it is an estimate, not a hard cap.
+  Decompression has no limit unless you give `decompress -memory`, in which case it decodes fewer
+  pieces at once and refuses, before writing anything, a file that cannot fit.
+- **Exit status:** 0 when it worked, 1 when it failed (a missing or damaged file, a full disk),
+  2 for a mistake on the command line (an unknown flag, a missing file name).
+
+## Reading `bench` output
+
+`fpress bench` compresses each file with every method, keeps nothing, and prints one row per file.
+Add `-ext` for comparison columns from `xz`, `zstd` and `bzip2`, if they are installed. For example:
+
+```
+file            size     flate   prep    fractal  cm      segmented  chosen     out      ratio  detail
+sierpinski.bin  1048576  8930    8934    359      7186    5773       fractal    359      0.000  w=1024 none tiles(f/z/s)=1/0/0 exact=100% recipes=728 anchors=1
+text.txt        1048576  323151  323153  -        209137  230108     cm         209137   0.199  w=0 none | fractal skipped (probe: 0.3% of blocks self-similar)
+mixed.bin       360448   100022  129064  95333    88133   85313      segmented  85313    0.237  6 x 64K segments (stored/flate/fractal/prep/cm)=1/0/1/0/4
+random.bin      1048576  -       -       -        -       -          stored     1048589  1.000  quick reject
+```
+
+| column | meaning |
+|---|---|
+| `size` | the original size in bytes |
+| `flate` | DEFLATE on the whole file (method 2 in "What it does") |
+| `prep` | the best reshaping followed by DEFLATE (method 3) |
+| `fractal` | the fractal stage (method 5) |
+| `cm` | the context-mixing coder (method 4) |
+| `segmented` | slice and pick: each slice uses its own best method (method 6) |
+| `chosen`, `out` | the method fpress would write and its size; the smallest of the columns, or `stored` |
+| `ratio` | `out` divided by `size`: 0.199 means the result is about a fifth of the original |
+| `time` | how long the whole row took |
+
+A `-` means the method was not tried: the preset turns it off, the file is too large for it, or the
+quick reject saw incompressible data and stopped early. The `detail` column says why the winner won:
+
+- `w=1024` is the row width the file was laid out at (`w=0`: not laid out in rows), and the word
+  after it is the reshaping chain, such as `delta` (`none` when there was none);
+- `tiles(f/z/s)=1/0/0` counts the fractal tiles coded with recipes / DEFLATE / stored;
+  `exact` is the share of bytes the recipes got exactly right, `recipes` is the number of copy
+  instructions, `anchors` the number of blocks stored as they are;
+- `6 x 64K segments (stored/flate/fractal/prep/cm)=1/0/1/0/4` is how many slices picked each method;
+- `fractal skipped (probe: ...)` means the quick sample found almost no repeated blocks, so the
+  fractal stage did not run (`-no-gate` forces it);
+- `quick reject` means the data looked incompressible and was stored.
+
+`bench` reads each whole file into memory, so use `-head N` (only the first N bytes) on very large files.
+
+## Troubleshooting
+
+| message | what it means and what to do |
+|---|---|
+| `corrupt container: bad magic` | the input is not a file written by `fpress compress` |
+| `corrupt container: unsupported version N` | it was written by a different 0.x version of fpress (see "Status"); decompress it with the version that wrote it |
+| `checksum mismatch`, or `corrupt container:` followed by anything else | the file is damaged or truncated, for example by an incomplete download. Nothing is written. Get a fresh copy |
+| `not enough memory budget to decode: ...` | the file needs more than the `decompress -memory` you gave; the message says how much. Raise the limit or decompress elsewhere |
+| `... is both the input and the output` | give the output a different name |
+| `flags go before the file names` | write `fpress compress -preset fast in out`, not `... in out -preset fast` |
+| `compress needs: IN OUT` | exactly one input and one output name are needed |
+| `internal error, ...` | a bug: the compressor's own check found that its output would not decode. Nothing was written. Please report it with the file if you can, or try `-preset fast` |
+| very slow, or a lot of memory | use `-preset fast` (no fractal stage) or `fastest`; lower `-memory` or `-workers` to use less memory |
+
+To check that a compressed file is intact without keeping the result, decompress it to `/dev/null`:
+exit status 0 means every byte came back and the checksum matched.
 
 ## Building
 

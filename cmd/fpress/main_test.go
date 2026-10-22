@@ -3,12 +3,14 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"flag"
 	"io"
 	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -403,4 +405,134 @@ func TestVideoFlag(t *testing.T) {
 			t.Errorf("%v should be rejected", bad)
 		}
 	}
+}
+
+// An output that is the input itself, by name or through a link, must be
+// refused before anything is written: the original would be replaced.
+func TestSameInputAndOutputRefused(t *testing.T) {
+	dir := t.TempDir()
+	in, data := gradientFile(t, dir)
+	link := filepath.Join(dir, "link.bin")
+	if err := os.Symlink(in, link); err != nil {
+		t.Skip("no symlinks here:", err)
+	}
+	var ue usageError
+	for _, out := range []string{in, link} {
+		if err := runCompress([]string{in, out}); !errors.As(err, &ue) {
+			t.Errorf("compress %s onto %s: got %v, want a usage error", in, out, err)
+		}
+		if err := runDecompress([]string{in, out}); !errors.As(err, &ue) {
+			t.Errorf("decompress %s onto %s: got %v, want a usage error", in, out, err)
+		}
+	}
+	if got, _ := os.ReadFile(in); !bytes.Equal(got, data) {
+		t.Fatal("the input was changed")
+	}
+}
+
+// A device such as /dev/null cannot take the usual write-then-rename, so it
+// is written directly; "decompress x.fpr /dev/null" is how people check a file.
+func TestWriteToDevice(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no /dev/null")
+	}
+	dir := t.TempDir()
+	in, _ := gradientFile(t, dir)
+	packed := filepath.Join(dir, "p.fpr")
+	if err := runCompress([]string{in, packed}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runDecompress([]string{packed, os.DevNull}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runCompress([]string{in, os.DevNull}); err != nil {
+		t.Fatal(err)
+	}
+	// A damaged file still fails when the output is a device.
+	blob, _ := os.ReadFile(packed)
+	os.WriteFile(packed, blob[:len(blob)/2], 0o644)
+	if err := runDecompress([]string{packed, os.DevNull}); err == nil {
+		t.Fatal("a truncated file decompressed without error")
+	}
+}
+
+func TestCommandLineMistakes(t *testing.T) {
+	dir := t.TempDir()
+	in, _ := gradientFile(t, dir)
+	out := filepath.Join(dir, "o.fpr")
+	for _, c := range []struct {
+		run  func([]string) error
+		args []string
+		want string
+	}{
+		{runCompress, []string{in, out, "-preset", "fast"}, "flags go before the file names"},
+		{runCompress, []string{in, out, "-v"}, "flags go before the file names"},
+		{runBench, []string{in, "-ext=true"}, "flags go before the file names"},
+		{runCompress, []string{in}, "compress needs: IN OUT"},
+		{runCompress, []string{"-bogus", in, out}, "not defined"},
+		{runCompress, []string{"-preset", "turbo", in, out}, "unknown preset"},
+		{runDecompress, []string{"-memory", "lots", in, out}, "-memory"},
+		{runBench, nil, "at least one FILE"},
+	} {
+		err := c.run(c.args)
+		var ue usageError
+		if !errors.As(err, &ue) || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%v: got %v, want a usage error containing %q", c.args, err, c.want)
+		}
+	}
+	if _, err := os.Stat(out); err == nil {
+		t.Error("an output was written despite a command-line mistake")
+	}
+}
+
+// Every flag must appear in the help under one of the two groups, so a new
+// flag cannot silently go missing from it.
+func TestHelpListsEveryFlag(t *testing.T) {
+	listed := map[string]int{}
+	for _, n := range append(append([]string(nil), commonFlags...), tuningFlags...) {
+		listed[n]++
+	}
+	for _, run := range []func([]string) error{runCompress, runDecompress, runBench} {
+		help := captureStdout(t, func() {
+			if err := run([]string{"-h"}); !errors.Is(err, flag.ErrHelp) {
+				t.Errorf("-h returned %v, want flag.ErrHelp", err)
+			}
+		})
+		if !strings.HasPrefix(help, "usage: fpress ") {
+			t.Errorf("help does not start with a usage line:\n%s", help)
+		}
+		fs := flag.NewFlagSet("t", flag.ContinueOnError)
+		codecFlags(fs)
+		fs.Bool("v", false, "")
+		fs.Int("head", 0, "")
+		fs.Bool("ext", false, "")
+		fs.VisitAll(func(f *flag.Flag) {
+			if listed[f.Name] != 1 {
+				t.Errorf("flag -%s is in %d help groups, want 1", f.Name, listed[f.Name])
+			}
+		})
+	}
+	var buf bytes.Buffer
+	usage(&buf)
+	for _, want := range []string{"fpress " + version, "examples:", "Exit status"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("top-level help lacks %q", want)
+		}
+	}
+}
+
+func captureStdout(t *testing.T, f func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stdout
+	os.Stdout = w
+	done := make(chan []byte)
+	go func() { b, _ := io.ReadAll(r); done <- b }()
+	f()
+	os.Stdout = old
+	w.Close()
+	return string(<-done)
 }

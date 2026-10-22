@@ -1,7 +1,7 @@
 // Command fpress compresses files with fractal-style matrix compression.
 //
 //	fpress compress   [flags] in out
-//	fpress decompress in out
+//	fpress decompress [flags] in out
 //	fpress bench      [flags] file...
 //
 // Use "-" for stdin or stdout.
@@ -28,7 +28,8 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		usage()
+		usage(os.Stderr)
+		os.Exit(2)
 	}
 	var err error
 	switch os.Args[1] {
@@ -41,16 +42,29 @@ func main() {
 	case "version", "-version", "--version":
 		fmt.Println(versionString())
 	case "-h", "-help", "--help", "help":
-		usage()
+		usage(os.Stdout)
 	default:
-		fmt.Fprintf(os.Stderr, "fpress: unknown command %q\n", os.Args[1])
-		usage()
+		fmt.Fprintf(os.Stderr, "fpress: unknown command %q\n\n", os.Args[1])
+		usage(os.Stderr)
+		os.Exit(2)
 	}
-	if err != nil {
+	var ue usageError
+	switch {
+	case err == nil, errors.Is(err, flag.ErrHelp):
+	case errors.As(err, &ue):
+		fmt.Fprintf(os.Stderr, "error: %v\nrun \"fpress %s -h\" for help\n", err, os.Args[1])
+		os.Exit(2)
+	default:
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
 }
+
+// usageError is a mistake on the command line (exit status 2), as opposed to
+// a failure while working (exit status 1).
+type usageError string
+
+func (e usageError) Error() string { return string(e) }
 
 // version is the release number of this tool.
 const version = "0.1.0"
@@ -59,18 +73,103 @@ func versionString() string {
 	return fmt.Sprintf("fpress %s (container format %d, %s %s/%s)", version, codec.FormatVersion, runtime.Version(), runtime.GOOS, runtime.GOARCH)
 }
 
-func usage() {
-	fmt.Fprint(os.Stderr, `usage:
-  fpress compress   [flags] in out    compress a file ("-" = stdin/stdout)
-  fpress decompress [-memory 2G] in out  restore a file
-  fpress bench      [flags] file...   compare stored / flate / prep / fractal sizes
-  fpress version                      print the version
+func usage(w io.Writer) {
+	fmt.Fprintf(w, `fpress %s: lossless compression for any file
 
-compress and bench flags: -preset (default|fast|fastest) -memory -big-segment -width -block -iter -stride -max-fractal -tile -min-block -workers -segment -no-cm -max-cm -cm-attempts -no-reject -no-fractal -no-copy -no-gate -no-prep -video WxH[:format]
-bench also takes -head N to use only the first N bytes of each file, and
--ext to add columns for xz -9e, zstd -19 and bzip2 -9 when they are installed.
-`)
-	os.Exit(2)
+usage:
+  fpress compress   [flags] IN OUT    compress IN into OUT
+  fpress decompress [flags] IN OUT    restore the original file into OUT
+  fpress bench      [flags] FILE...   try every method on each file and show the sizes
+  fpress version                      print the version
+  fpress help                         show this help
+
+"-" as IN or OUT reads standard input or writes standard output.
+Flags go before the file names.
+
+common flags:
+  -preset NAME     default (smallest, slowest), fast or fastest
+  -memory SIZE     memory budget, such as 4G or 512M (compress default 8G;
+                   on decompress: refuse files that cannot fit)
+  -workers N       CPU cores to use (default: all)
+  -video WxH[:FMT] the input is raw video frames, such as 1280x720:rgb24
+  -v               compress: print the size, the method chosen and the time
+
+examples:
+  fpress compress data.bin data.bin.fpr
+  fpress compress -preset fast server.log server.log.fpr
+  fpress decompress data.bin.fpr data.bin
+  tar cf - photos | fpress compress - photos.tar.fpr
+
+"fpress compress -h" lists every flag, including the tuning flags.
+Exit status: 0 done, 1 failed, 2 mistake on the command line.
+`, version)
+}
+
+// Flags shown first in a command's help; every other flag is listed under
+// "tuning flags", in this order.
+var (
+	commonFlags = []string{"preset", "memory", "workers", "video", "v", "head", "ext"}
+	tuningFlags = []string{
+		"no-fractal", "no-cm", "no-prep", "no-copy", "no-gate", "no-reject",
+		"width", "segment", "big-segment", "max-cm", "max-fractal", "cm-attempts",
+		"block", "min-block", "stride", "iter", "tile",
+	}
+)
+
+// setUsage gives fs a help text: the usage line and a description, then the
+// command's flags, common ones first.
+func setUsage(fs *flag.FlagSet, synopsis, about string) {
+	fs.Usage = func() {
+		w := fs.Output()
+		fmt.Fprintf(w, "usage: fpress %s %s\n\n%s\n", fs.Name(), synopsis, about)
+		group := func(title string, names []string) {
+			printed := false
+			for _, name := range names {
+				f := fs.Lookup(name)
+				if f == nil {
+					continue
+				}
+				if !printed {
+					fmt.Fprintf(w, "\n%s:\n", title)
+					printed = true
+				}
+				arg, text := flag.UnquoteUsage(f)
+				if arg != "" {
+					arg = " " + arg
+				}
+				fmt.Fprintf(w, "  -%s%s\n    \t%s\n", f.Name, arg, text)
+			}
+		}
+		group("flags", commonFlags)
+		group("tuning flags (for experiments; the presets already pick good values)", tuningFlags)
+	}
+}
+
+// parseArgs parses args into fs and checks that want positional arguments
+// remain (want < 0: at least one). A flag after the file names is reported as
+// such rather than as a wrong number of arguments. -h prints the help to
+// standard output and returns flag.ErrHelp.
+func parseArgs(fs *flag.FlagSet, args []string, want int, what string) error {
+	fs.Init(fs.Name(), flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			fs.SetOutput(os.Stdout)
+			fs.Usage()
+			return err
+		}
+		return usageError(err.Error())
+	}
+	for _, a := range fs.Args() {
+		name, _, _ := strings.Cut(strings.TrimLeft(a, "-"), "=")
+		if strings.HasPrefix(a, "-") && fs.Lookup(name) != nil {
+			return usageError(fmt.Sprintf("flags go before the file names (found %s after them)", a))
+		}
+	}
+	if (want >= 0 && fs.NArg() != want) || (want < 0 && fs.NArg() == 0) {
+		return usageError(fmt.Sprintf("%s needs: %s", fs.Name(), what))
+	}
+	return nil
 }
 
 // codecFlags registers the tuning flags shared by compress and bench. The
@@ -78,27 +177,27 @@ bench also takes -head N to use only the first N bytes of each file, and
 // the user actually gave, so a flag's default never undoes a preset.
 func codecFlags(fs *flag.FlagSet) func() (codec.Options, error) {
 	def := codec.DefaultOptions()
-	preset := fs.String("preset", "default", "speed/size trade-off: default, fast or fastest")
-	width := fs.Int("width", 0, "fold width in bytes (0 = automatic)")
-	block := fs.Int("block", def.Fractal.Block, "range block size")
-	iter := fs.Int("iter", def.Fractal.Iterations, "decoder iterations")
-	stride := fs.Int("stride", def.Fractal.Stride, "spacing between candidate domain blocks")
-	maxf := fs.Int("max-fractal", def.MaxFractalSize, "skip the fractal attempt above this many bytes (0 = no limit)")
-	tile := fs.Int("tile", def.Fractal.Tile, "fractal tile side")
-	minb := fs.Int("min-block", def.Fractal.MinBlock, "smallest range block (quad-tree depth)")
-	workers := fs.Int("workers", 0, "parallel tiles/segments (0 = all CPUs)")
-	seg := fs.Int("segment", 0, "segment size for segmented mode (0 = preset's, -1 = off)")
-	noCM := fs.Bool("no-cm", false, "disable the context-mixing coder")
-	maxCM := fs.Int("max-cm", def.MaxCMSize, "skip the context-mixing coder above this many bytes")
-	attempts := fs.Int("cm-attempts", 0, "layouts the context-mixing coder tries per block (0 = automatic)")
-	memory := fs.String("memory", "", "memory budget the encoder plans tiles, parallelism and super-segments around (e.g. 4G, 512M; default 8G)")
-	bigSeg := fs.String("big-segment", "", "super-segment size for very large inputs (e.g. 64M; default: from the memory budget)")
-	noCopy := fs.Bool("no-copy", false, "disable same-scale (2D copy) fractal recipes")
-	noGate := fs.Bool("no-gate", false, "always run the fractal step (do not skip it when the data shows no self-similarity)")
-	noRej := fs.Bool("no-reject", false, "disable the quick reject for incompressible data")
-	no := fs.Bool("no-fractal", false, "skip the fractal attempt")
-	noPrep := fs.Bool("no-prep", false, "skip the prep (width/delta/bit-plane) search")
-	video := fs.String("video", "", "input is raw video, headerless frames: WIDTHxHEIGHT[:FORMAT] ("+codec.VideoFormats+")")
+	preset := fs.String("preset", "default", "`NAME`: default (smallest output, slowest), fast (no fractal stage) or fastest (DEFLATE only)")
+	width := fs.Int("width", 0, "lay the file out in rows of `N` bytes (0 = find the width automatically)")
+	block := fs.Int("block", def.Fractal.Block, fmt.Sprintf("fractal stage: largest block it matches, `N` bytes per side (default %d)", def.Fractal.Block))
+	iter := fs.Int("iter", def.Fractal.Iterations, fmt.Sprintf("fractal stage: `N` rounds the decoder runs to rebuild the data (default %d)", def.Fractal.Iterations))
+	stride := fs.Int("stride", def.Fractal.Stride, fmt.Sprintf("fractal stage: spacing `N` of the positions it copies from (default %d; smaller searches more, slower)", def.Fractal.Stride))
+	maxf := fs.Int("max-fractal", def.MaxFractalSize, "skip the fractal stage on inputs larger than `N` bytes (0 = no limit)")
+	tile := fs.Int("tile", def.Fractal.Tile, "fractal stage: cut the data into independent square tiles of side `N` (0 = as large as -memory allows)")
+	minb := fs.Int("min-block", def.Fractal.MinBlock, fmt.Sprintf("fractal stage: smallest block side `N`; blocks with no match are split down to this (default %d)", def.Fractal.MinBlock))
+	workers := fs.Int("workers", 0, "use `N` CPU cores (0 = all)")
+	seg := fs.Int("segment", 0, "slice size, `N` bytes, when each slice picks its own method (0 = the preset's: 64K, 256K fast, 1M fastest; -1 = off)")
+	noCM := fs.Bool("no-cm", false, "do not use the context-mixing coder")
+	maxCM := fs.Int("max-cm", def.MaxCMSize, "skip the context-mixing coder on pieces larger than `N` bytes (0 = 16 MiB)")
+	attempts := fs.Int("cm-attempts", 0, "try `N` layouts with the context-mixing coder per piece (0 = automatic: 3, fewer on large pieces)")
+	memory := fs.String("memory", "", "memory budget `SIZE`, such as 4G or 512M, that the compressor plans its work around (default 8G; an estimate, not a hard cap)")
+	bigSeg := fs.String("big-segment", "", "cut very large inputs into independent pieces of `SIZE`, such as 64M (default: chosen from -memory)")
+	noCopy := fs.Bool("no-copy", false, "fractal stage: do not use same-size block copies")
+	noGate := fs.Bool("no-gate", false, "always run the fractal stage, even when a quick sample finds no repeated blocks")
+	noRej := fs.Bool("no-reject", false, "try every method, even on data that looks incompressible")
+	no := fs.Bool("no-fractal", false, "do not use the fractal stage")
+	noPrep := fs.Bool("no-prep", false, "do not search for a row width or reshaping steps")
+	video := fs.String("video", "", "the input is raw video with no header: `WxH[:FORMAT]` gives the frame size in pixels and the pixel format, one of "+codec.VideoFormats+". Turns off the fractal stage")
 	return func() (codec.Options, error) {
 		p, err := codec.ParsePreset(*preset)
 		if err != nil {
@@ -161,13 +260,18 @@ func codecFlags(fs *flag.FlagSet) func() (codec.Options, error) {
 func runCompress(args []string) error {
 	fs := flag.NewFlagSet("compress", flag.ExitOnError)
 	get := codecFlags(fs)
-	verbose := fs.Bool("v", false, "print a summary to stderr")
-	fs.Parse(args)
-	if fs.NArg() != 2 {
-		return errors.New("compress needs: in out")
+	verbose := fs.Bool("v", false, "print the sizes, the method chosen and the time to standard error")
+	setUsage(fs, "[flags] IN OUT", `Compress IN into OUT. "-" reads standard input or writes standard output.
+OUT is replaced if it exists. Flags go before the file names. The defaults
+shown are those of -preset default.`)
+	if err := parseArgs(fs, args, 2, "IN OUT"); err != nil {
+		return err
 	}
 	opt, err := get()
 	if err != nil {
+		return usageError(err.Error())
+	}
+	if err := checkDistinct(fs.Arg(0), fs.Arg(1)); err != nil {
 		return err
 	}
 	in, size, cleanup, err := openInput(fs.Arg(0))
@@ -201,18 +305,23 @@ func runCompress(args []string) error {
 
 func runDecompress(args []string) error {
 	fs := flag.NewFlagSet("decompress", flag.ExitOnError)
-	memory := fs.String("memory", "", "memory budget to decode within (e.g. 2G, 512M): limits parallelism, and refuses files whose pieces cannot fit (default: no limit)")
-	fs.Parse(args)
-	if fs.NArg() != 2 {
-		return errors.New("decompress needs: in out")
+	memory := fs.String("memory", "", "memory budget `SIZE`, such as 2G or 512M, to decode within: fewer pieces are decoded at once, and a file that cannot fit is refused (default: no limit)")
+	setUsage(fs, "[flags] IN OUT", `Restore the original file from IN, a file written by "fpress compress", into
+OUT. "-" reads standard input or writes standard output. OUT is replaced if it
+exists; nothing is written if IN is damaged. Flags go before the file names.`)
+	if err := parseArgs(fs, args, 2, "IN OUT"); err != nil {
+		return err
 	}
 	var dopt codec.DecodeOptions
 	if *memory != "" {
 		n, err := parseSize(*memory)
 		if err != nil {
-			return fmt.Errorf("-memory: %w", err)
+			return usageError("-memory: " + err.Error())
 		}
 		dopt.MemoryLimit = n
+	}
+	if err := checkDistinct(fs.Arg(0), fs.Arg(1)); err != nil {
+		return err
 	}
 	in, size, cleanup, err := openInput(fs.Arg(0))
 	if err != nil {
@@ -223,6 +332,22 @@ func runDecompress(args []string) error {
 		_, err := codec.DecompressStreamOpt(w, in, size, dopt)
 		return err
 	})
+}
+
+// checkDistinct refuses an output that is the input itself (by any name, such
+// as a link): the result would replace the original.
+func checkDistinct(in, out string) error {
+	if in == "-" || out == "-" {
+		return nil
+	}
+	si, err := os.Stat(in)
+	if err != nil {
+		return nil // openInput reports it
+	}
+	if so, err := os.Stat(out); err == nil && os.SameFile(si, so) {
+		return usageError(fmt.Sprintf("%s is both the input and the output; choose another output name", out))
+	}
+	return nil
 }
 
 // openInput returns a random-access reader for path and its size. Standard
@@ -257,13 +382,29 @@ func openInput(path string) (io.ReaderAt, int64, func(), error) {
 // writeOutput runs write against path. A file is written under a temporary
 // name in the same directory and renamed into place only on success, so a
 // failed run never leaves a partial output behind; "-" is standard output.
+// Something that is not a regular file, such as /dev/null or a named pipe,
+// is written directly: it cannot be renamed over and has nothing to protect.
 func writeOutput(path string, write func(io.Writer) error) error {
-	if path == "-" {
-		bw := bufio.NewWriterSize(os.Stdout, 1<<20)
+	direct := func(w io.Writer) error {
+		bw := bufio.NewWriterSize(w, 1<<20)
 		if err := write(bw); err != nil {
 			return err
 		}
 		return bw.Flush()
+	}
+	if path == "-" {
+		return direct(os.Stdout)
+	}
+	if st, err := os.Stat(path); err == nil && !st.Mode().IsRegular() {
+		f, err := os.OpenFile(path, os.O_WRONLY, 0)
+		if err != nil {
+			return err
+		}
+		if err := direct(f); err != nil {
+			f.Close()
+			return err
+		}
+		return f.Close()
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".fpress-*")
 	if err != nil {
@@ -351,15 +492,17 @@ func externalSize(name string, args []string, data []byte) int {
 func runBench(args []string) error {
 	fs := flag.NewFlagSet("bench", flag.ExitOnError)
 	get := codecFlags(fs)
-	head := fs.Int("head", 0, "use only the first N bytes of each file (0 = all)")
-	ext := fs.Bool("ext", false, "also run xz, zstd and bzip2 as references")
-	fs.Parse(args)
-	if fs.NArg() == 0 {
-		return errors.New("bench needs at least one file")
+	head := fs.Int("head", 0, "use only the first `N` bytes of each file (0 = all)")
+	ext := fs.Bool("ext", false, "add columns for xz -9e, zstd -19 and bzip2 -9, when they are installed")
+	setUsage(fs, "[flags] FILE...", `Compress each file with every method and print one row per file: the size each
+method gave ("-" = not tried), the one chosen, and the time. Nothing is
+written. The README section "Reading bench output" explains the columns.`)
+	if err := parseArgs(fs, args, -1, "at least one FILE"); err != nil {
+		return err
 	}
 	opt, err := get()
 	if err != nil {
-		return err
+		return usageError(err.Error())
 	}
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	header := "file\tsize\tflate\tprep\tfractal\tcm\tsegmented\tchosen\tout\tratio"
