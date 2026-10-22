@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.1.1
+
+Container format unchanged (version 6): files from 0.1.0 open in 0.1.1 and the other way round.
 
 - Compressing or decompressing a file onto itself (or onto a link to it) is refused; before, the
   original was replaced by the result.
