@@ -68,7 +68,7 @@ type usageError string
 func (e usageError) Error() string { return string(e) }
 
 // version is the release number of this tool.
-const version = "0.1.1"
+const version = "0.2.0"
 
 func versionString() string {
 	return fmt.Sprintf("fpress %s (container format %d, %s %s/%s)", version, codec.FormatVersion, runtime.Version(), runtime.GOOS, runtime.GOARCH)

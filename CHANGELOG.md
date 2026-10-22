@@ -1,13 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
+
+Container format unchanged (version 6): files open in 0.1.x and 0.2.0 alike.
 
 - `compress` shows progress on a terminal: a percentage, the bytes done and the time, then
   "checking the result". `-q` turns it off; scripts and logs (not a terminal) never see it.
 - The Go module is now `github.com/sandgorgon/fpress`, so `codec` can be used from other programs
-  (`go get github.com/sandgorgon/fpress@latest`). Only `codec` is meant for outside use. New:
-  `codec.Progress`, `Options.Progress`, `entropy.EncodeCounting`. README: "Using fpress from Go".
-- Container format unchanged (version 6).
+  (`go get github.com/sandgorgon/fpress@latest`). Only `codec` is meant for outside use. New in
+  `codec`: `Progress`, `ProgressStatus` and `Options.Progress`. README: "Using fpress from Go".
 
 ## 0.1.1
 
